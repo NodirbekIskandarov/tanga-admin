@@ -10,7 +10,7 @@
     <div class="row">
       {% for v, t in [('kutilmoqda','Kutilmoqda'), ('tasdiqlandi','Tasdiqlangan'),
                       ('rad etildi','Rad etilgan'), ('','Hammasi')] %}
-        <a class="btn {{ 'pri' if holat == v }}" href="/sorovlar?holat={{ v }}">{{ t }}</a>
+        <a class="btn {{ 'pri' if holat == v }}" href="/sorovlar?holat={{ v|urlencode }}">{{ t }}</a>
       {% endfor %}
     </div>
   </div>
