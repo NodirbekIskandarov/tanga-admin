@@ -360,6 +360,11 @@ label.fld > span {
   border: 1px solid var(--line); border-radius: 6px;
   background: var(--panel-2); display: block;
 }
+.pdf-proof {
+  width: 100%; height: 300px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel-2);
+}
+
 .no-proof {
   text-align: center; color: var(--ink-3); font-size: 13.5px;
   padding: 40px 10px; border: 1px dashed var(--line); border-radius: 6px;

@@ -68,7 +68,9 @@ function RequestCard({ req, onDecide, busy }) {
               <dt>Chek</dt>
               <dd>
                 {req.proof_file_id ? (
-                  <>✅ yuborilgan · {dt(req.proof_at)}</>
+                  <>
+                    ✅ {req.proof_kind === "pdf" ? "PDF" : "rasm"} · {dt(req.proof_at)}
+                  </>
                 ) : (
                   <span style={{ color: "var(--warn)" }}>⏳ hali kelmagan</span>
                 )}
@@ -120,7 +122,32 @@ function RequestCard({ req, onDecide, busy }) {
           </div>
 
           <div className="req-proof">
-            {req.proof_file_id ? (
+            {req.proof_file_id && req.proof_kind === "pdf" ? (
+              // PDF chekni <img> ko'rsata olmaydi — brauzerning o'z
+              // ko'ruvchisiga beramiz.
+              <>
+                <object
+                  data={proofUrl}
+                  type="application/pdf"
+                  className="pdf-proof"
+                  aria-label="To'lov cheki (PDF)"
+                >
+                  <div className="no-proof">
+                    <div style={{ fontSize: 30 }}>📄</div>
+                    <div>PDF chek</div>
+                  </div>
+                </object>
+                <a
+                  className="btn sm"
+                  href={proofUrl}
+                  target="_blank"
+                  rel="noopener"
+                  style={{ justifyContent: "center" }}
+                >
+                  📄 PDF ni ochish
+                </a>
+              </>
+            ) : req.proof_file_id ? (
               <>
                 <img
                   src={proofUrl}

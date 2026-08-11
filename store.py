@@ -102,6 +102,8 @@ COLUMN_MIGRATIONS = [
      "ALTER TABLE subscription_requests ADD COLUMN proof_file_id TEXT"),
     ("subscription_requests", "proof_at",
      "ALTER TABLE subscription_requests ADD COLUMN proof_at TEXT"),
+    ("subscription_requests", "proof_kind",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_kind TEXT NOT NULL DEFAULT 'rasm'"),
 ]
 
 
