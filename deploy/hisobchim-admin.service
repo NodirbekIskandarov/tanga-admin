@@ -9,7 +9,9 @@ User=hisobchi
 Group=hisobchi
 WorkingDirectory=/opt/hisobchim-admin
 EnvironmentFile=/opt/hisobchim-admin/.env
-ExecStart=/opt/hisobchim-admin/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8100 --proxy-headers --forwarded-allow-ips 127.0.0.1
+# Caddy Docker konteynerida ishlaydi, shuning uchun 127.0.0.1 emas, docker
+# ko'prigining host manzili. Bu manzil tashqi tarmoqdan yo'naltirilmaydi.
+ExecStart=/opt/hisobchim-admin/.venv/bin/uvicorn app:app --host 172.30.0.1 --port 8100 --proxy-headers --forwarded-allow-ips *
 Restart=always
 RestartSec=10
 
