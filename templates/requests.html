@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block heading %}Obuna so'rovlari{% endblock %}
+
+{% block content %}
+
+{% if message %}<div class="note ok">{{ message }}</div>{% endif %}
+
+<div class="card">
+  <div class="pad">
+    <div class="row">
+      {% for v, t in [('kutilmoqda','Kutilmoqda'), ('tasdiqlandi','Tasdiqlangan'),
+                      ('rad etildi','Rad etilgan'), ('','Hammasi')] %}
+        <a class="btn {{ 'pri' if holat == v }}" href="/sorovlar?holat={{ v }}">{{ t }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{ rows|length }} ta so'rov</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Kelgan vaqt</th><th>Foydalanuvchi</th><th>Tarif</th>
+          <th class="num">Summa</th><th>Holat</th><th>Hal qilgan</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="mono nowrap">{{ r.created_at|dt }}</td>
+          <td>
+            <a href="/foydalanuvchilar/{{ r.user_id }}"><b>{{ r.first_name or r.user_id }}</b></a>
+            {% if r.username %}<div style="color:var(--ink-3);font-size:12.5px">@{{ r.username }}</div>{% endif %}
+          </td>
+          <td>{{ r.plan_code }}</td>
+          <td class="num">{{ r.price|som }}</td>
+          <td><span class="tag {{ 'kutilmoqda' if r.status == 'kutilmoqda' else ('tasdiqlandi' if r.status == 'tasdiqlandi' else 'rad') }}">{{ r.status }}</span></td>
+          <td style="color:var(--ink-3);font-size:13px">
+            {% if r.decided_by %}{{ r.decided_by }}<br>{{ r.decided_at|dt }}{% else %}—{% endif %}
+          </td>
+          <td class="nowrap">
+            {% if r.status == 'kutilmoqda' %}
+              <form method="post" action="/sorovlar/{{ r.id }}" style="display:inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="qaror" value="tasdiq">
+                <button class="btn sm ok" type="submit"
+                        onclick="return confirm('To\'lov qabul qilindimi? Obuna darhol faollashadi.')">
+                  ✓ Tasdiqlash
+                </button>
+              </form>
+              <form method="post" action="/sorovlar/{{ r.id }}" style="display:inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="qaror" value="rad">
+                <button class="btn sm dan" type="submit">✕ Rad etish</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty">So'rov yo'q.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="note">
+  <b>Qanday ishlaydi.</b> Foydalanuvchi botda «💎 Obuna» tugmasini bosib tarif
+  tanlaydi — so'rov shu yerga tushadi. To'lovni qabul qilganingizdan keyin
+  «Tasdiqlash» bosing: obuna faollashadi, to'lov moliya hisobotiga yoziladi va
+  foydalanuvchiga Telegram orqali xabar boradi.
+</div>
+
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block heading %}Foydalanuvchilar{% endblock %}
+{% block actions %}
+  <a class="btn" href="/eksport/foydalanuvchilar.csv">⬇ CSV</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <div class="pad">
+    <form class="row" method="get">
+      <label class="fld grow" style="margin:0">
+        <span>Qidiruv</span>
+        <input type="text" name="q" value="{{ q }}" placeholder="Ism, username yoki ID">
+      </label>
+      <label class="fld" style="margin:0;min-width:160px">
+        <span>Holat</span>
+        <select name="holat">
+          <option value="">Hammasi</option>
+          {% for v, t in [('obunachi','Obunachilar'), ('sinov','Bepul sinovda'),
+                          ('tugagan','Muddati tugagan'), ('bloklangan','Bloklangan'),
+                          ('ega','Egalar')] %}
+            <option value="{{ v }}" {{ 'selected' if holat == v }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="fld" style="margin:0;min-width:160px">
+        <span>Tartib</span>
+        <select name="tartib">
+          {% for v, t in [('yangi','Yangi qo\'shilgan'), ('faol','Oxirgi faollik'),
+                          ('yozuv','Yozuvlar soni'), ('xarajat','AI xarajati')] %}
+            <option value="{{ v }}" {{ 'selected' if tartib == v }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn pri" type="submit">Filtrlash</button>
+      {% if q or holat %}<a class="btn" href="/foydalanuvchilar">Tozalash</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>{{ total }} ta foydalanuvchi</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Foydalanuvchi</th>
+          <th>ID</th>
+          <th>Holat</th>
+          <th class="num">Qoldi</th>
+          <th class="num">Yozuv</th>
+          <th class="num">AI sarfi</th>
+          <th>Oxirgi faollik</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>
+            <a href="/foydalanuvchilar/{{ r.user_id }}"><b>{{ r.first_name or 'Nomsiz' }}</b></a>
+            {% if r.username %}<div style="color:var(--ink-3);font-size:12.5px">@{{ r.username }}</div>{% endif %}
+          </td>
+          <td class="mono">{{ r.user_id }}</td>
+          <td><span class="tag {{ r.state }}">{{ r.state }}</span></td>
+          <td class="num">{{ r.days_left if r.days_left is not none else '—' }}</td>
+          <td class="num">{{ r.tx_count }}</td>
+          <td class="num">{{ r.cost_usd|short_usd }}</td>
+          <td class="mono nowrap">{{ r.last_seen_at|d }}</td>
+          <td class="nowrap"><a class="btn sm" href="/foydalanuvchilar/{{ r.user_id }}">Boshqarish</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="empty">Hech narsa topilmadi.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="pager">
+    <span class="cnt">{{ sahifa }} / {{ pages }} sahifa</span>
+    {% set base = '/foydalanuvchilar?q=' ~ q ~ '&holat=' ~ holat ~ '&tartib=' ~ tartib %}
+    {% if sahifa > 1 %}<a class="btn sm" href="{{ base }}&sahifa={{ sahifa - 1 }}">← Oldingi</a>{% endif %}
+    {% if sahifa < pages %}<a class="btn sm" href="{{ base }}&sahifa={{ sahifa + 1 }}">Keyingi →</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

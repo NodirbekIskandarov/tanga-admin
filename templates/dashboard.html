@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block heading %}Umumiy holat{% endblock %}
+{% block actions %}
+  <a class="btn" href="/eksport/foydalanuvchilar.csv">⬇ Foydalanuvchilar CSV</a>
+{% endblock %}
+
+{% block content %}
+
+{% if ov.pending %}
+<div class="note warn">
+  <b>{{ ov.pending }} ta obuna so'rovi</b> javob kutmoqda —
+  <a href="/sorovlar">ko'rish</a>
+</div>
+{% endif %}
+
+<div class="kpis">
+  <div class="kpi">
+    <div class="lbl">Foydalanuvchilar</div>
+    <div class="val">{{ ov.users_total }}</div>
+    <div class="sub">{{ ov.active_7 }} tasi 7 kun ichida faol</div>
+  </div>
+  <div class="kpi good">
+    <div class="lbl">Obunachilar</div>
+    <div class="val">{{ ov.states.obunachi }}</div>
+    <div class="sub">Konversiya {{ ov.conversion }}%</div>
+  </div>
+  <div class="kpi warn">
+    <div class="lbl">Bepul sinovda</div>
+    <div class="val">{{ ov.states.sinov }}</div>
+    <div class="sub">{{ ov.states.tugagan }} tasining muddati tugagan</div>
+  </div>
+  <div class="kpi">
+    <div class="lbl">Shu oy daromad</div>
+    <div class="val">{{ ov.revenue_month|som }}</div>
+    <div class="sub">Jami {{ ov.revenue_all|som }} so'm</div>
+  </div>
+  <div class="kpi {{ 'bad' if ov.profit_month < 0 else 'good' }}">
+    <div class="lbl">Shu oy sof foyda</div>
+    <div class="val">{{ ov.profit_month|som }}</div>
+    <div class="sub">AI sarfi {{ ov.cost_month|short_usd }} ayirilgan</div>
+  </div>
+  <div class="kpi">
+    <div class="lbl">Bugungi faollik</div>
+    <div class="val">{{ ov.tx_today }}</div>
+    <div class="sub">{{ ov.calls_today }} ta AI chaqiruvi</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Oxirgi 30 kun</h2>
+  <canvas class="chart" id="growth" height="200"></canvas>
+  <div class="legend">
+    <span><i style="background:#1B4E8F"></i>Yangi foydalanuvchi</span>
+    <span><i style="background:#C77700"></i>Yozuvlar</span>
+  </div>
+</div>
+
+<div class="grid2">
+
+  <div class="card">
+    <h2>Muddati tugayotganlar
+      <span class="spacer"></span>
+      <span style="font-family:var(--sans);text-transform:none;letter-spacing:0;font-weight:500">7 kun ichida</span>
+    </h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Foydalanuvchi</th><th>Holat</th><th class="num">Qoldi</th><th></th></tr></thead>
+        <tbody>
+        {% for u in expiring %}
+          <tr>
+            <td>
+              <a href="/foydalanuvchilar/{{ u.user_id }}">{{ u.first_name or u.user_id }}</a>
+              {% if u.username %}<span style="color:var(--ink-3)"> @{{ u.username }}</span>{% endif %}
+            </td>
+            <td><span class="tag {{ u.state }}">{{ u.state }}</span></td>
+            <td class="num">{{ u.days_left }} kun</td>
+            <td class="nowrap"><a class="btn sm" href="/foydalanuvchilar/{{ u.user_id }}">Ochish</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">Yaqin kunlarda tugaydigan yo'q.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Oxirgi to'lovlar</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Sana</th><th>Foydalanuvchi</th><th>Tarif</th><th class="num">Summa</th></tr></thead>
+        <tbody>
+        {% for p in payments %}
+          <tr>
+            <td class="mono nowrap">{{ p.created_at|d }}</td>
+            <td><a href="/foydalanuvchilar/{{ p.user_id }}">{{ p.first_name or p.user_id }}</a></td>
+            <td>{{ p.plan_code }}</td>
+            <td class="num">{{ p.amount|som }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">Hozircha to'lov yo'q.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="card">
+  <h2>Foydalanuvchilar taqsimoti</h2>
+  <div class="pad bars">
+    {% set total = ov.users_total or 1 %}
+    {% for key, label, color in [
+        ('obunachi','Obunachilar','var(--ok)'),
+        ('sinov','Bepul sinovda','var(--warn)'),
+        ('tugagan','Muddati tugagan','var(--ink-3)'),
+        ('bloklangan','Bloklangan','var(--danger)'),
+        ('ega','Egalar','var(--brand)')] %}
+      <div class="bar-row">
+        <span>{{ label }}</span>
+        <span class="bar-track">
+          <span class="bar-fill" style="width:{{ (100 * ov.states[key] / total)|round(1) }}%;background:{{ color }}"></span>
+        </span>
+        <span class="bar-val">{{ ov.states[key] }} · {{ (100 * ov.states[key] / total)|round(0)|int }}%</span>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chart.js"></script>
+<script>
+  drawBars(document.getElementById('growth'), {{ series_json|safe }},
+           [['users', '#1B4E8F'], ['transactions', '#C77700']]);
+</script>
+{% endblock %}

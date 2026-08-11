@@ -1,0 +1,31 @@
+[Unit]
+Description=Hisobchi AI admin boshqaruv paneli
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hisobchi
+Group=hisobchi
+WorkingDirectory=/opt/hisobchim-admin
+EnvironmentFile=/opt/hisobchim-admin/.env
+ExecStart=/opt/hisobchim-admin/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8100 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+
+# Xavfsizlik cheklovlari
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# Bot bazasi va o'z katalogi — yozish faqat shu ikkisiga
+ReadWritePaths=/opt/hisobchim-admin /opt/hisobchi
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Kirish — {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/admin.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-box" method="post" action="/login">
+    <h1>Hisobchi AI</h1>
+    <p class="sub">Admin boshqaruv paneli</p>
+
+    {% if error %}<div class="note bad">{{ error }}</div>{% endif %}
+
+    <input type="hidden" name="next" value="{{ next }}">
+
+    <label class="fld">
+      <span>Login</span>
+      <input type="text" name="username" autocomplete="username" autofocus required>
+    </label>
+
+    <label class="fld">
+      <span>Parol</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+
+    <button class="btn pri" type="submit">Kirish</button>
+  </form>
+</div>
+</body>
+</html>
