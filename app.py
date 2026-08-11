@@ -1,23 +1,27 @@
-"""Hisobchi AI — admin boshqaruv paneli.
+"""Hisobchi AI — admin boshqaruv paneli (JSON API + React SPA).
+
+Frontend alohida React ilovasi (frontend/), yig'ilgan fayllar static/dist
+ichida turadi va shu yerdan beriladi. Barcha ma'lumot /api/* orqali
+JSON ko'rinishida almashinadi.
 
 Ishga tushirish:  uvicorn app:app --host 127.0.0.1 --port 8100
 """
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
-import json
 import logging
 import os
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
-                               Response, StreamingResponse)
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import (FileResponse, JSONResponse, Response,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
 import auth
 import plans
@@ -30,301 +34,345 @@ logging.basicConfig(
 log = logging.getLogger("admin")
 
 app = FastAPI(title=settings.APP_NAME, docs_url=None, redoc_url=None, openapi_url=None)
-app.mount("/static", StaticFiles(directory=str(settings.BASE_DIR / "static")), name="static")
-templates = Jinja2Templates(directory=str(settings.BASE_DIR / "templates"))
 
-OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(",", " ").split() if x.strip().isdigit()}
+DIST = settings.BASE_DIR / "static" / "dist"
+OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(",", " ").split()
+             if x.strip().isdigit()}
 
 
 @app.on_event("startup")
 def _startup() -> None:
     store.init()
-    problems = settings.missing()
-    for p in problems:
-        log.error("SOZLAMA XATOSI: %s", p)
-    log.info("Admin panel tayyor. Baza: %s | Egalar: %s", settings.DB_PATH, OWNER_IDS or "yo'q")
+    for problem in settings.missing():
+        log.error("SOZLAMA XATOSI: %s", problem)
+    if not (DIST / "index.html").exists():
+        log.warning("Frontend yig'ilmagan: %s topilmadi. "
+                    "frontend/ ichida `npm run build` bajaring.", DIST / "index.html")
+    log.info("Admin panel tayyor. Baza: %s | Egalar: %s",
+             settings.DB_PATH, OWNER_IDS or "yo'q")
 
 
 # --------------------------------------------------------------------------- #
-# Yordamchilar
+# Xavfsizlik sarlavhalari
+#
+# Caddy ham qo'yadi, lekin ilova o'zi ham qo'yishi kerak: proxy sozlamasi
+# o'zgarsa yoki ilova boshqa joyda ishga tushsa himoya yo'qolib qolmasin.
+# --------------------------------------------------------------------------- #
+
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "   # React inline uslublari uchun
+    "img-src 'self' data: blob:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "base-uri 'none'; "
+    "object-src 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy",
+                                "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers.setdefault("Strict-Transport-Security",
+                                    "max-age=31536000; includeSubDomains")
+    return response
+
+
+# --------------------------------------------------------------------------- #
+# Autentifikatsiya
 # --------------------------------------------------------------------------- #
 
 def client_ip(request: Request) -> str:
-    # Caddy orqasida ishlaydi — haqiqiy IP sarlavhada keladi.
     fwd = request.headers.get("x-forwarded-for", "")
-    return (fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else ""))
+    return fwd.split(",")[0].strip() if fwd else (
+        request.client.host if request.client else "")
 
 
 def current_admin(request: Request) -> dict:
-    """Har bir himoyalangan sahifa shu orqali tekshiriladi."""
     data = auth.read_session(request.cookies.get(auth.COOKIE_NAME, ""))
     if not data:
         raise HTTPException(401, "Kirish kerak")
     return data
 
 
-def require_csrf(request: Request, session: dict, token: str) -> None:
-    """O'zgartiruvchi amallar uchun — boshqa sayt sizning nomingizdan
-    so'rov yubora olmasligi kerak."""
+def writer(request: Request, session: dict = Depends(current_admin)) -> dict:
+    """O'zgartiruvchi amallar uchun: sessiya + CSRF tokeni.
+
+    SPA tokenni X-CSRF-Token sarlavhasida yuboradi. Boshqa sayt bunday
+    sarlavhani qo'sha olmaydi (CORS oddiy so'rovga ruxsat bermaydi), shu
+    bilan birga cookie SameSite=Strict — ikki qatlamli himoya.
+    """
+    token = request.headers.get("x-csrf-token", "")
     if not token or token != session.get("c"):
         raise HTTPException(403, "CSRF tokeni mos kelmadi. Sahifani yangilang.")
+    return session
 
 
-@app.exception_handler(401)
-async def _unauthorized(request: Request, exc):
-    if request.url.path.startswith("/api/"):
-        return JSONResponse({"error": "Kirish kerak"}, status_code=401)
-    return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
-
-
-@app.exception_handler(403)
-async def _forbidden(request: Request, exc):
-    return HTMLResponse(
-        f"<p style='font-family:system-ui;padding:40px'>{exc.detail}</p>", status_code=403)
-
-
-def page(request: Request, session: dict, name: str, **ctx) -> HTMLResponse:
-    base = {
-        "request": request,
-        "admin": session["u"],
-        "csrf": session["c"],
-        "app_name": settings.APP_NAME,
-        "pending": store.pending_count(),
-        "path": request.url.path,
-    }
-    base.update(ctx)
-    return templates.TemplateResponse(name, base)
-
-
-def _fmt_som(v) -> str:
-    return f"{int(round(v or 0)):,}".replace(",", " ")
-
-
-templates.env.filters["som"] = _fmt_som
-templates.env.filters["usd"] = lambda v: f"${(v or 0):.4f}"
-templates.env.filters["short_usd"] = lambda v: f"${(v or 0):.2f}"
-
-
-def _fmt_dt(raw) -> str:
-    if not raw:
-        return "—"
-    try:
-        dt = datetime.fromisoformat(str(raw))
-    except ValueError:
-        return str(raw)[:16]
-    return dt.strftime("%d.%m.%Y %H:%M")
-
-
-def _fmt_d(raw) -> str:
-    if not raw:
-        return "—"
-    return str(raw)[:10]
-
-
-templates.env.filters["dt"] = _fmt_dt
-templates.env.filters["d"] = _fmt_d
-
-
-# --------------------------------------------------------------------------- #
-# Kirish / chiqish
-# --------------------------------------------------------------------------- #
-
-@app.get("/login", response_class=HTMLResponse)
-def login_form(request: Request, next: str = "/", error: str = ""):
-    if auth.read_session(request.cookies.get(auth.COOKIE_NAME, "")):
-        return RedirectResponse(next or "/", status_code=303)
-    return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "app_name": settings.APP_NAME, "next": next, "error": error})
-
-
-@app.post("/login")
-def login_submit(request: Request, username: str = Form(""), password: str = Form(""),
-                 next: str = Form("/")):
-    try:
-        token = auth.login(username, password, client_ip(request))
-    except auth.LoginError as exc:
-        return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "app_name": settings.APP_NAME, "next": next,
-             "error": str(exc)},
-            status_code=401)
-
-    response = RedirectResponse(next or "/", status_code=303)
+def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         auth.COOKIE_NAME, token,
         max_age=settings.SESSION_HOURS * 3600,
-        httponly=True, secure=settings.COOKIE_SECURE, samesite="lax", path="/")
+        httponly=True, secure=settings.COOKIE_SECURE, samesite="strict", path="/")
+
+
+@app.exception_handler(HTTPException)
+async def _http_error(request: Request, exc: HTTPException):
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+# --------------------------------------------------------------------------- #
+# So'rov chegarasi — kirish sahifasiga qaratilgan hujumga qarshi
+# --------------------------------------------------------------------------- #
+
+_ip_hits: dict[str, list[float]] = {}
+IP_LIMIT, IP_WINDOW = 240, 60
+
+
+def _rate_limit(ip: str, limit: int = IP_LIMIT) -> None:
+    now = time.time()
+    hits = [t for t in _ip_hits.get(ip, []) if now - t < IP_WINDOW]
+    if len(hits) >= limit:
+        raise HTTPException(429, "Juda ko'p so'rov. Biroz kuting.")
+    hits.append(now)
+    _ip_hits[ip] = hits
+    if len(_ip_hits) > 5000:
+        for key in [k for k, v in _ip_hits.items() if not v or now - v[-1] > 300]:
+            _ip_hits.pop(key, None)
+
+
+# --------------------------------------------------------------------------- #
+# Yordamchilar
+# --------------------------------------------------------------------------- #
+
+def _iso(value) -> str | None:
+    if not value:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _plans() -> list[dict]:
+    return [
+        {**p,
+         "monthly": plans.SUBSCRIPTION_PLANS and round(p["price"] / p["months"]),
+         "discount": round(100 * (1 - (p["price"] / p["months"]) /
+                                  plans.SUBSCRIPTION_PLANS[0]["price"]))
+         if p["months"] > 1 else 0}
+        for p in plans.SUBSCRIPTION_PLANS
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# Sessiya
+# --------------------------------------------------------------------------- #
+
+class LoginBody(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+
+
+@app.post("/api/login")
+def api_login(request: Request, body: LoginBody):
+    ip = client_ip(request)
+    _rate_limit(ip, limit=30)
+    try:
+        token = auth.login(body.username, body.password, ip)
+    except auth.LoginError as exc:
+        raise HTTPException(401, str(exc))
+    session = auth.read_session(token) or {}
+    response = JSONResponse({"admin": session.get("u"), "csrf": session.get("c")})
+    _set_session_cookie(response, token)
     return response
 
 
-@app.get("/logout")
-def logout(request: Request):
+@app.post("/api/logout")
+def api_logout(request: Request):
     data = auth.read_session(request.cookies.get(auth.COOKIE_NAME, ""))
     if data:
         store.log_action(data["u"], "chiqdi", ip=client_ip(request))
-    response = RedirectResponse("/login", status_code=303)
+    response = JSONResponse({"ok": True})
     response.delete_cookie(auth.COOKIE_NAME, path="/")
     return response
 
 
-@app.get("/parol", response_class=HTMLResponse)
-def password_form(request: Request, session: dict = Depends(current_admin),
-                  message: str = "", error: str = ""):
-    return page(request, session, "password.html",
-                admins=store.list_admins(), message=message, error=error)
+@app.get("/api/session")
+def api_session(session: dict = Depends(current_admin)):
+    return {
+        "admin": session["u"],
+        "csrf": session["c"],
+        "expires_at": session.get("exp"),
+        "app_name": settings.APP_NAME,
+        "pending": store.pending_count(),
+        "proofs": store.proof_count(),
+    }
 
 
-@app.post("/parol")
-def password_change(request: Request, session: dict = Depends(current_admin),
-                    csrf: str = Form(""), current: str = Form(""),
-                    new1: str = Form(""), new2: str = Form("")):
-    require_csrf(request, session, csrf)
+class PasswordBody(BaseModel):
+    current: str = Field(max_length=256)
+    new1: str = Field(min_length=10, max_length=256)
+    new2: str = Field(min_length=10, max_length=256)
+
+
+@app.post("/api/password")
+def api_password(request: Request, body: PasswordBody,
+                 session: dict = Depends(writer)):
     row = store.get_admin(session["u"])
-    error = ""
-    if not row or not auth.verify_password(current, row["password_hash"], row["salt"]):
-        error = "Joriy parol noto'g'ri."
-    elif len(new1) < 10:
-        error = "Yangi parol kamida 10 belgidan iborat bo'lsin."
-    elif new1 != new2:
-        error = "Yangi parollar mos kelmadi."
-
-    if error:
-        return page(request, session, "password.html",
-                    admins=store.list_admins(), message="", error=error)
-
-    h, s = auth.hash_password(new1)
+    if not row or not auth.verify_password(body.current, row["password_hash"],
+                                           row["salt"]):
+        raise HTTPException(400, "Joriy parol noto'g'ri.")
+    if body.new1 != body.new2:
+        raise HTTPException(400, "Yangi parollar mos kelmadi.")
+    if body.new1 == body.current:
+        raise HTTPException(400, "Yangi parol eskisidan farq qilsin.")
+    h, s = auth.hash_password(body.new1)
     store.set_admin_password(session["u"], h, s)
     store.log_action(session["u"], "parol almashtirildi", ip=client_ip(request))
-    return page(request, session, "password.html", admins=store.list_admins(),
-                message="Parol almashtirildi.", error="")
+    return {"ok": True}
+
+
+@app.get("/api/admins")
+def api_admins(session: dict = Depends(current_admin)):
+    return {"items": [dict(r) for r in store.list_admins()]}
 
 
 # --------------------------------------------------------------------------- #
 # Boshqaruv paneli
 # --------------------------------------------------------------------------- #
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, session: dict = Depends(current_admin)):
+@app.get("/api/dashboard")
+def api_dashboard(session: dict = Depends(current_admin)):
     ov = store.overview(OWNER_IDS)
-    series = store.daily_series(30)
-    return page(
-        request, session, "dashboard.html",
-        ov=ov,
-        series_json=json.dumps(series),
-        expiring=store.expiring_soon(7, OWNER_IDS)[:10],
-        payments=store.recent_payments(8),
-        requests=store.list_requests("kutilmoqda", 5),
-        usd_rate=settings.USD_RATE,
-    )
+    expiring = []
+    for u in store.expiring_soon(7, OWNER_IDS)[:10]:
+        expiring.append({
+            "user_id": u["user_id"], "first_name": u["first_name"],
+            "username": u["username"], "state": u["state"],
+            "days_left": u["days_left"], "expires_at": _iso(u["expires_at"]),
+        })
+    return {
+        "overview": ov,
+        "series": store.daily_series(30),
+        "expiring": expiring,
+        "payments": store.recent_payments(8),
+        "requests": store.list_requests("ochiq", 5),
+        "usd_rate": settings.USD_RATE,
+    }
 
 
 # --------------------------------------------------------------------------- #
 # Foydalanuvchilar
 # --------------------------------------------------------------------------- #
 
-@app.get("/foydalanuvchilar", response_class=HTMLResponse)
-def users_page(request: Request, session: dict = Depends(current_admin),
-               q: str = "", holat: str = "", tartib: str = "yangi",
-               sahifa: int = Query(1, ge=1)):
+@app.get("/api/users")
+def api_users(session: dict = Depends(current_admin),
+              q: str = Query("", max_length=64),
+              holat: str = Query("", max_length=20),
+              tartib: str = Query("yangi", max_length=20),
+              sahifa: int = Query(1, ge=1, le=10_000)):
     per = 40
     rows, total = store.list_users(q, holat, OWNER_IDS, tartib, per, (sahifa - 1) * per)
-    return page(request, session, "users.html",
-                rows=rows, total=total, q=q, holat=holat, tartib=tartib,
-                sahifa=sahifa, pages=max(1, (total + per - 1) // per),
-                plans=plans.SUBSCRIPTION_PLANS)
+    return {
+        "items": rows, "total": total, "page": sahifa,
+        "pages": max(1, (total + per - 1) // per),
+        "plans": _plans(),
+    }
 
 
-@app.get("/foydalanuvchilar/{user_id}", response_class=HTMLResponse)
-def user_page(request: Request, user_id: int, session: dict = Depends(current_admin),
-              message: str = ""):
-    u = store.get_user(user_id, OWNER_IDS)
-    if not u:
+@app.get("/api/users/{user_id}")
+def api_user(user_id: int, session: dict = Depends(current_admin)):
+    user = store.get_user(user_id, OWNER_IDS)
+    if not user:
         raise HTTPException(404, "Foydalanuvchi topilmadi")
-    return page(request, session, "user.html", u=u,
-                plans=plans.SUBSCRIPTION_PLANS, message=message)
+    return {"user": user, "plans": _plans()}
 
 
-@app.post("/foydalanuvchilar/{user_id}/amal")
-async def user_action(request: Request, user_id: int,
-                      session: dict = Depends(current_admin),
-                      csrf: str = Form(""), amal: str = Form(""),
-                      plan_code: str = Form(""), kun: int = Form(0),
-                      matn: str = Form("")):
-    require_csrf(request, session, csrf)
+class UserAction(BaseModel):
+    amal: str = Field(max_length=20)
+    plan_code: str = Field("", max_length=10)
+    kun: int = Field(0, ge=0, le=3650)
+    matn: str = Field("", max_length=3000)
+
+
+@app.post("/api/users/{user_id}/action")
+async def api_user_action(request: Request, user_id: int, body: UserAction,
+                          session: dict = Depends(writer)):
     admin, ip = session["u"], client_ip(request)
-    message = ""
 
-    if amal == "obuna":
-        plan = plans.by_code(plan_code)
-        days = plan["days"] if plan else max(1, kun)
+    if body.amal == "obuna":
+        plan = plans.by_code(body.plan_code)
+        days = plan["days"] if plan else max(1, body.kun)
         amount = plan["price"] if plan else 0
         until = store.grant_subscription(user_id, days)
-        store.add_payment(user_id, plan_code or "qolda", amount, days, admin)
+        store.add_payment(user_id, body.plan_code or "qolda", amount, days, admin)
         store.log_action(admin, "obuna berildi", user_id,
-                         f"{plans.label(plan_code) if plan else str(days) + ' kun'}", ip)
+                         plans.label(body.plan_code) if plan else f"{days} kun", ip)
         await telegram.send_message(
             user_id,
             f"🎉 <b>Obunangiz faollashtirildi!</b>\n\n"
             f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha\n\n"
             f"Rahmat! Holatni ko'rish: /holat")
-        message = f"Obuna berildi — {until.strftime('%d.%m.%Y')} gacha."
+        return {"message": f"Obuna berildi — {until.strftime('%d.%m.%Y')} gacha."}
 
-    elif amal == "sinov":
-        until = store.extend_trial(user_id, max(1, kun))
-        store.log_action(admin, "sinov uzaytirildi", user_id, f"{kun} kun", ip)
+    if body.amal == "sinov":
+        until = store.extend_trial(user_id, max(1, body.kun))
+        store.log_action(admin, "sinov uzaytirildi", user_id, f"{body.kun} kun", ip)
         await telegram.send_message(
-            user_id,
-            f"🎁 Bepul sinov muddatingiz uzaytirildi — "
-            f"<b>{until.strftime('%d.%m.%Y')}</b> gacha.")
-        message = f"Sinov {until.strftime('%d.%m.%Y')} gacha uzaytirildi."
+            user_id, f"🎁 Bepul sinov muddatingiz uzaytirildi — "
+                     f"<b>{until.strftime('%d.%m.%Y')}</b> gacha.")
+        return {"message": f"Sinov {until.strftime('%d.%m.%Y')} gacha uzaytirildi."}
 
-    elif amal == "bekor":
+    if body.amal == "bekor":
         store.set_subscription_until(user_id, None)
         store.log_action(admin, "obuna bekor qilindi", user_id, ip=ip)
-        message = "Obuna bekor qilindi."
+        return {"message": "Obuna bekor qilindi."}
 
-    elif amal in ("bloklash", "ochish"):
-        blocked = amal == "bloklash"
+    if body.amal in ("bloklash", "ochish"):
+        blocked = body.amal == "bloklash"
         store.set_blocked(user_id, blocked)
-        store.log_action(admin, amal, user_id, ip=ip)
-        message = "Bloklandi." if blocked else "Blokdan chiqarildi."
+        store.log_action(admin, body.amal, user_id, ip=ip)
+        return {"message": "Bloklandi." if blocked else "Blokdan chiqarildi."}
 
-    elif amal == "xabar":
-        text = (matn or "").strip()
+    if body.amal == "xabar":
+        text = body.matn.strip()
         if not text:
-            message = "Xabar matni bo'sh."
-        else:
-            ok, info = await telegram.send_message(user_id, text)
-            store.log_action(admin, "shaxsiy xabar", user_id, text[:120], ip)
-            message = "Xabar yuborildi." if ok else f"Yuborilmadi: {info}"
+            raise HTTPException(400, "Xabar matni bo'sh.")
+        ok, info = await telegram.send_message(user_id, text)
+        store.log_action(admin, "shaxsiy xabar", user_id, text[:120], ip)
+        if not ok:
+            raise HTTPException(502, f"Yuborilmadi: {info}")
+        return {"message": "Xabar yuborildi."}
 
-    elif amal == "ochirish":
+    if body.amal == "ochirish":
         stats = store.delete_user_data(user_id)
         store.log_action(admin, "MA'LUMOT O'CHIRILDI", user_id,
                          f"{stats['transactions']} yozuv, {stats['usage']} sarf", ip)
-        return RedirectResponse("/foydalanuvchilar?message=ochirildi", status_code=303)
+        return {"message": "Ma'lumot o'chirildi.", "deleted": True}
 
-    else:
-        message = "Noma'lum amal."
-
-    return RedirectResponse(f"/foydalanuvchilar/{user_id}?message={message}", status_code=303)
+    raise HTTPException(400, "Noma'lum amal.")
 
 
 # --------------------------------------------------------------------------- #
 # Obuna so'rovlari
 # --------------------------------------------------------------------------- #
 
-@app.get("/sorovlar", response_class=HTMLResponse)
-def requests_page(request: Request, session: dict = Depends(current_admin),
-                  holat: str = "ochiq", message: str = ""):
-    return page(request, session, "requests.html",
-                rows=store.list_requests(holat, 200), holat=holat, message=message)
+@app.get("/api/requests")
+def api_requests(session: dict = Depends(current_admin),
+                 holat: str = Query("ochiq", max_length=20)):
+    return {"items": store.list_requests(holat, 200)}
 
 
-@app.get("/sorovlar/{req_id}/chek")
-async def request_proof(req_id: int, session: dict = Depends(current_admin)):
-    """To'lov chekini ko'rsatadi. Rasm Telegramdan olinadi, serverda saqlanmaydi."""
+@app.get("/api/requests/{req_id}/proof")
+async def api_request_proof(req_id: int, session: dict = Depends(current_admin)):
     req = store.get_request(req_id)
     if not req or not req.get("proof_file_id"):
         raise HTTPException(404, "Chek biriktirilmagan")
@@ -332,28 +380,34 @@ async def request_proof(req_id: int, session: dict = Depends(current_admin)):
     if not result:
         raise HTTPException(502, "Chekni Telegramdan olib bo'lmadi")
     content, mime = result
-    return Response(content=content, media_type=mime,
-                    headers={"Cache-Control": "private, max-age=300"})
+    return Response(content=content, media_type=mime, headers={
+        "Cache-Control": "private, max-age=300",
+        "Content-Disposition": f'inline; filename="chek-{req_id}"',
+    })
 
 
-@app.post("/sorovlar/{req_id}")
-async def request_decide(request: Request, req_id: int,
-                         session: dict = Depends(current_admin),
-                         csrf: str = Form(""), qaror: str = Form(""),
-                         sabab: str = Form("")):
-    require_csrf(request, session, csrf)
+class RequestDecision(BaseModel):
+    qaror: str = Field(max_length=10)
+    sabab: str = Field("", max_length=200)
+
+
+@app.post("/api/requests/{req_id}/decide")
+async def api_request_decide(request: Request, req_id: int, body: RequestDecision,
+                             session: dict = Depends(writer)):
     admin, ip = session["u"], client_ip(request)
     req = store.get_request(req_id)
     if not req:
         raise HTTPException(404, "So'rov topilmadi")
     if req["status"] not in ("kutilmoqda", "tekshiruvda"):
-        return RedirectResponse("/sorovlar?message=Bu so'rov allaqachon hal qilingan",
-                                status_code=303)
+        raise HTTPException(409, "Bu so'rov allaqachon hal qilingan.")
 
     plan = plans.by_code(req["plan_code"])
-    if qaror == "tasdiq" and plan:
+    if body.qaror == "tasdiq":
+        if not plan:
+            raise HTTPException(400, "Tarif topilmadi")
         until = store.grant_subscription(req["user_id"], plan["days"])
-        store.add_payment(req["user_id"], plan["code"], plan["price"], plan["days"], admin)
+        store.add_payment(req["user_id"], plan["code"], plan["price"],
+                          plan["days"], admin)
         store.decide_request(req_id, "tasdiqlandi", admin)
         store.log_action(admin, "so'rov tasdiqlandi", req["user_id"], plan["label"], ip)
         await telegram.send_message(
@@ -362,47 +416,44 @@ async def request_decide(request: Request, req_id: int,
             f"Tarif: {plan['label']}\n"
             f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha\n\n"
             f"Rahmat! Holatni ko'rish: /holat")
-        msg = "Tasdiqlandi va foydalanuvchiga xabar berildi."
-    else:
-        reason = (sabab or "").strip()
-        store.decide_request(req_id, "rad etildi", admin, reason)
-        store.log_action(admin, "so'rov rad etildi", req["user_id"],
-                         f"{plans.label(req['plan_code'])} | {reason}"[:200], ip)
-        tail = f"\n\n<b>Sabab:</b> {reason}" if reason else ""
-        await telegram.send_message(
-            req["user_id"],
-            f"❌ <b>To'lov tasdiqlanmadi</b>{tail}\n\n"
-            f"To'lovni qayta tekshirib, chekni yana yuboring yoki "
-            f"administrator bilan bog'laning. Tariflar: /obuna")
-        msg = "Rad etildi."
+        return {"message": "Tasdiqlandi va foydalanuvchiga xabar berildi."}
 
-    return RedirectResponse(f"/sorovlar?message={msg}", status_code=303)
+    reason = body.sabab.strip()
+    store.decide_request(req_id, "rad etildi", admin, reason)
+    store.log_action(admin, "so'rov rad etildi", req["user_id"],
+                     f"{plans.label(req['plan_code'])} | {reason}"[:200], ip)
+    tail = f"\n\n<b>Sabab:</b> {reason}" if reason else ""
+    await telegram.send_message(
+        req["user_id"],
+        f"❌ <b>To'lov tasdiqlanmadi</b>{tail}\n\n"
+        f"To'lovni qayta tekshirib, chekni yana yuboring yoki administrator "
+        f"bilan bog'laning. Tariflar: /obuna")
+    return {"message": "Rad etildi."}
 
 
 # --------------------------------------------------------------------------- #
 # Moliya
 # --------------------------------------------------------------------------- #
 
-@app.get("/moliya", response_class=HTMLResponse)
-def finance_page(request: Request, session: dict = Depends(current_admin),
-                 kun: int = Query(30, ge=7, le=365)):
+@app.get("/api/finance")
+def api_finance(session: dict = Depends(current_admin),
+                kun: int = Query(30, ge=7, le=365)):
     ov = store.overview(OWNER_IDS)
-    breakdown = store.cost_breakdown(kun)
-    series = store.daily_series(min(kun, 90))
-    spenders = store.top_spenders(15, kun)
-
-    cost_month_som = ov["cost_month"] * settings.USD_RATE
-    per_user = (ov["cost_month"] / max(1, ov["users_total"] - ov["states"]["ega"]))
-
-    return page(request, session, "finance.html",
-                ov=ov, breakdown=breakdown, spenders=spenders,
-                series_json=json.dumps(series), kun=kun,
-                usd_rate=settings.USD_RATE,
-                cost_month_som=cost_month_som,
-                per_user_usd=per_user,
-                per_user_som=per_user * settings.USD_RATE,
-                payments=store.recent_payments(25),
-                plans=plans.SUBSCRIPTION_PLANS)
+    payers = max(1, ov["users_total"] - ov["states"]["ega"])
+    per_user = ov["cost_month"] / payers
+    return {
+        "overview": ov,
+        "breakdown": store.cost_breakdown(kun),
+        "spenders": store.top_spenders(15, kun),
+        "series": store.daily_series(min(kun, 90)),
+        "payments": store.recent_payments(25),
+        "plans": _plans(),
+        "usd_rate": settings.USD_RATE,
+        "cost_month_som": ov["cost_month"] * settings.USD_RATE,
+        "per_user_usd": per_user,
+        "per_user_som": per_user * settings.USD_RATE,
+        "days": kun,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -417,96 +468,129 @@ SEGMENTS = {
 }
 
 
-@app.get("/xabar", response_class=HTMLResponse)
-def broadcast_page(request: Request, session: dict = Depends(current_admin),
-                   message: str = ""):
-    counts = {}
-    for key in SEGMENTS:
-        state = "" if key == "hammasi" else key
-        counts[key] = len(store.all_user_ids(state, OWNER_IDS))
-    return page(request, session, "broadcast.html",
-                segments=SEGMENTS, counts=counts, message=message)
+@app.get("/api/broadcast")
+def api_broadcast_info(session: dict = Depends(current_admin)):
+    counts = {key: len(store.all_user_ids("" if key == "hammasi" else key, OWNER_IDS))
+              for key in SEGMENTS}
+    return {"segments": SEGMENTS, "counts": counts}
 
 
-@app.post("/xabar")
-async def broadcast_send(request: Request, session: dict = Depends(current_admin),
-                         csrf: str = Form(""), segment: str = Form("hammasi"),
-                         matn: str = Form(""), tasdiq: str = Form("")):
-    require_csrf(request, session, csrf)
-    text = (matn or "").strip()
-    if not text:
-        return RedirectResponse("/xabar?message=Matn bo'sh", status_code=303)
-    if tasdiq != "ha":
-        return RedirectResponse("/xabar?message=Yuborishni tasdiqlang", status_code=303)
+class BroadcastBody(BaseModel):
+    segment: str = Field(max_length=20)
+    matn: str = Field(min_length=1, max_length=3500)
+    tasdiq: bool = False
 
-    state = "" if segment == "hammasi" else segment
-    ids = store.all_user_ids(state, OWNER_IDS)
+
+@app.post("/api/broadcast")
+async def api_broadcast(request: Request, body: BroadcastBody,
+                        session: dict = Depends(writer)):
+    if body.segment not in SEGMENTS:
+        raise HTTPException(400, "Noma'lum segment")
+    if not body.tasdiq:
+        raise HTTPException(400, "Yuborishni tasdiqlang")
+    text = body.matn.strip()
+    ids = store.all_user_ids("" if body.segment == "hammasi" else body.segment,
+                             OWNER_IDS)
     result = await telegram.broadcast(ids, text)
-    store.log_action(session["u"], "ommaviy xabar", SEGMENTS.get(segment, segment),
-                     f"{result['ok']} yuborildi, {result['failed']} xato | {text[:100]}",
-                     client_ip(request))
-    msg = f"{result['ok']} ta yuborildi, {result['failed']} ta yuborilmadi."
-    return RedirectResponse(f"/xabar?message={msg}", status_code=303)
+    store.log_action(session["u"], "ommaviy xabar", SEGMENTS[body.segment],
+                     f"{result['ok']} yuborildi, {result['failed']} xato | "
+                     f"{text[:100]}", client_ip(request))
+    return {"message": f"{result['ok']} ta yuborildi, "
+                       f"{result['failed']} ta yuborilmadi.", **result}
 
 
 # --------------------------------------------------------------------------- #
 # Jurnal
 # --------------------------------------------------------------------------- #
 
-@app.get("/jurnal", response_class=HTMLResponse)
-def log_page(request: Request, session: dict = Depends(current_admin),
-             sahifa: int = Query(1, ge=1)):
+@app.get("/api/log")
+def api_log(session: dict = Depends(current_admin),
+            sahifa: int = Query(1, ge=1, le=10_000)):
     per = 100
     total = store.count_log()
-    return page(request, session, "log.html",
-                rows=store.list_log(per, (sahifa - 1) * per),
-                sahifa=sahifa, pages=max(1, (total + per - 1) // per), total=total)
+    return {
+        "items": [dict(r) for r in store.list_log(per, (sahifa - 1) * per)],
+        "total": total, "page": sahifa, "pages": max(1, (total + per - 1) // per),
+    }
 
 
 # --------------------------------------------------------------------------- #
 # Eksport
 # --------------------------------------------------------------------------- #
 
-@app.get("/eksport/foydalanuvchilar.csv")
-def export_users(request: Request, session: dict = Depends(current_admin)):
+def _csv_response(name: str, header: list[str], rows) -> StreamingResponse:
+    buf = io.StringIO()
+    writer_ = csv.writer(buf)
+    writer_.writerow(header)
+    for row in rows:
+        writer_.writerow(row)
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8-sig")), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.get("/api/export/users.csv")
+def api_export_users(request: Request, session: dict = Depends(current_admin)):
     rows, _ = store.list_users(owner_ids=OWNER_IDS, limit=10 ** 9)
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["user_id", "ism", "username", "holat", "qolgan_kun", "royxatdan_otgan",
-                "oxirgi_faollik", "yozuvlar", "ai_xarajat_usd"])
-    for r in rows:
-        w.writerow([r["user_id"], r["first_name"], r["username"] or "", r["state"],
-                    r["days_left"] if r["days_left"] is not None else "",
-                    r["created_at"], r["last_seen_at"] or "",
-                    r["tx_count"], f"{r['cost_usd']:.4f}"])
     store.log_action(session["u"], "eksport", "foydalanuvchilar", ip=client_ip(request))
-    return StreamingResponse(
-        io.BytesIO(buf.getvalue().encode("utf-8-sig")), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=foydalanuvchilar.csv"})
+    return _csv_response(
+        "foydalanuvchilar.csv",
+        ["user_id", "ism", "username", "holat", "qolgan_kun", "royxatdan_otgan",
+         "oxirgi_faollik", "yozuvlar", "ai_xarajat_usd"],
+        ([r["user_id"], r["first_name"], r["username"] or "", r["state"],
+          r["days_left"] if r["days_left"] is not None else "", r["created_at"],
+          r["last_seen_at"] or "", r["tx_count"], f"{r['cost_usd']:.4f}"]
+         for r in rows))
 
 
-@app.get("/eksport/tolovlar.csv")
-def export_payments(request: Request, session: dict = Depends(current_admin)):
+@app.get("/api/export/payments.csv")
+def api_export_payments(request: Request, session: dict = Depends(current_admin)):
     rows = store.recent_payments(10 ** 9)
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["sana", "user_id", "ism", "tarif", "summa", "kun", "usul", "kim"])
-    for r in rows:
-        w.writerow([r["created_at"], r["user_id"], r["first_name"] or "",
-                    plans.label(r["plan_code"]), r["amount"], r["days"],
-                    r["method"], r["created_by"]])
     store.log_action(session["u"], "eksport", "tolovlar", ip=client_ip(request))
-    return StreamingResponse(
-        io.BytesIO(buf.getvalue().encode("utf-8-sig")), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=tolovlar.csv"})
+    return _csv_response(
+        "tolovlar.csv",
+        ["sana", "user_id", "ism", "tarif", "summa", "kun", "usul", "kim"],
+        ([r["created_at"], r["user_id"], r["first_name"] or "",
+          plans.label(r["plan_code"]), r["amount"], r["days"], r["method"],
+          r["created_by"]] for r in rows))
 
 
 @app.get("/salomatlik")
 def health():
-    """Xizmat tirikligini tekshirish uchun — kirish talab qilinmaydi."""
     try:
         with store.conn() as c:
             c.execute("SELECT 1").fetchone()
         return {"holat": "ok"}
     except Exception as exc:
         return JSONResponse({"holat": "xato", "sabab": str(exc)}, status_code=500)
+
+
+# --------------------------------------------------------------------------- #
+# React ilovasi
+#
+# Barcha API yo'llaridan KEYIN ro'yxatga olinadi, aks holda "/" ostidagi
+# ushlagich /api/* so'rovlarini ham tutib qolardi.
+# --------------------------------------------------------------------------- #
+
+if (DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
+
+
+@app.get("/{full_path:path}")
+def spa(full_path: str):
+    """SPA marshrutlash: brauzerdagi har qanday yo'l index.html ga tushadi."""
+    if full_path.startswith(("api/", "salomatlik")):
+        raise HTTPException(404, "Topilmadi")
+
+    # Yig'ilgan statik fayl (favicon va h.k.) bo'lsa — o'shani beramiz.
+    if full_path and "/" not in full_path:
+        candidate = DIST / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+    index = DIST / "index.html"
+    if not index.exists():
+        return JSONResponse(
+            {"detail": "Frontend yig'ilmagan. frontend/ ichida `npm run build`."},
+            status_code=503)
+    return FileResponse(index, headers={"Cache-Control": "no-store"})
