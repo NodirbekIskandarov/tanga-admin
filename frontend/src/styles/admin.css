@@ -187,6 +187,11 @@ nav .group {
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .grid3 { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
 @media (max-width: 1080px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+/* Grid ichidagi keng jadval ustunni kengaytirib, butun sahifani
+   yon tomonga siljitib yuboradi. min-width:0 buni to'xtatadi —
+   jadval o'z konteynerida siljiydi. */
+.grid2 > *, .grid3 > * { min-width: 0; }
+
 
 /* ---------------- Jadval ---------------- */
 

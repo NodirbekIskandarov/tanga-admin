@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import hmac
 import json
 import secrets
@@ -16,6 +17,8 @@ import time
 
 import settings
 import store
+
+log = logging.getLogger("admin.auth")
 
 # scrypt parametrlari — interaktiv login uchun yetarli darajada qimmat.
 # 128 * N * r = 32 MB xotira kerak; OpenSSL'ning standart chegarasi aynan
@@ -106,6 +109,8 @@ def login(username: str, password: str, ip: str) -> str:
     row = store.get_admin(username)
     if not row or not verify_password(password or "", row["password_hash"], row["salt"]):
         store.record_login(username, ip, False)
+        # fail2ban shu qatorni o'qib IP'ni firewall darajasida bloklaydi.
+        log.warning("KIRISH XATO: %s", ip)
         # Qaysi biri xato ekanini aytmaymiz — hisob nomini taxmin qilishga yo'l bermaydi.
         raise LoginError("Login yoki parol noto'g'ri.")
 
