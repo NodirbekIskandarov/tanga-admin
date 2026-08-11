@@ -1,0 +1,41 @@
+# main'ga push qilinganda serverga joylashtirish signalini yuboradi.
+#
+# Bu yerda SSH kaliti YO'Q: server o'zi kodni tortib oladi. Workflow
+# faqat «yangilanish bor» deb aytadi. Shu sabab GitHub hisobi buzilsa
+# ham u orqali serverga kirish imkoni ochilmaydi.
+#
+# Kerakli secret: DEPLOY_TOKEN
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+
+name: Serverga joylashtirish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hisobchim-admin
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Serverga signal yuborish
+        env:
+          TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -u
+          URL="https://server-controller.niskandarov.uz/api/deploy/hook/hisobchim-admin"
+          code=$(curl -sS -o /tmp/javob.json -w '%{http_code}' --max-time 30 -X POST "$URL" -H "X-Deploy-Token: $TOKEN" -H "X-GitHub-Event: $EVENT")
+          echo "Server javobi: HTTP $code"
+          cat /tmp/javob.json 2>/dev/null || true
+          echo
+          if [ "$code" != "202" ]; then
+            echo "::error::Server signalni qabul qilmadi (HTTP $code)"
+            exit 1
+          fi
+          echo "::notice::Joylashtirish boshlandi. Loglar: https://server-controller.niskandarov.uz/deploy"
