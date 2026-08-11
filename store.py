@@ -94,9 +94,24 @@ def conn():
         c.close()
 
 
+# Keyin qo'shilgan ustunlar: (jadval, ustun, SQL). Bot loyihasidagi
+# db.TABLE_MIGRATIONS bilan mos bo'lishi kerak — ikkala jarayon ham
+# ishga tushganda bir xil sxemani kutadi.
+COLUMN_MIGRATIONS = [
+    ("subscription_requests", "proof_file_id",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_file_id TEXT"),
+    ("subscription_requests", "proof_at",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_at TEXT"),
+]
+
+
 def init() -> None:
     with conn() as c:
         c.executescript(ADMIN_SCHEMA)
+        for table, column, sql in COLUMN_MIGRATIONS:
+            cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+            if cols and column not in cols:
+                c.execute(sql)
 
 
 def now_iso() -> str:
@@ -407,22 +422,37 @@ def add_request(user_id: int, plan_code: str, price: int) -> int:
 
 
 def list_requests(status: str = "", limit: int = 100) -> list:
+    """status: '' — hammasi, 'ochiq' — hal qilinmaganlar, yoki aniq holat."""
     sql = ("SELECT r.*, u.first_name, u.username FROM subscription_requests r "
            "LEFT JOIN users u ON u.user_id = r.user_id")
     params: list = []
-    if status:
+    if status == "ochiq":
+        sql += " WHERE r.status IN ('kutilmoqda', 'tekshiruvda')"
+    elif status:
         sql += " WHERE r.status = ?"
         params.append(status)
-    sql += " ORDER BY r.id DESC LIMIT ?"
+    # Cheki kelganlar tepada — ular darhol javob kutmoqda.
+    sql += (" ORDER BY CASE r.status WHEN 'tekshiruvda' THEN 0 "
+            "WHEN 'kutilmoqda' THEN 1 ELSE 2 END, r.id DESC LIMIT ?")
     params.append(limit)
     with conn() as c:
         return [dict(r) for r in c.execute(sql, params).fetchall()]
 
 
 def pending_count() -> int:
+    """Javob kutayotgan so'rovlar — cheki kelganlar ham, hali kelmaganlar ham."""
     with conn() as c:
         return int(c.execute(
-            "SELECT COUNT(*) FROM subscription_requests WHERE status = 'kutilmoqda'"
+            "SELECT COUNT(*) FROM subscription_requests "
+            "WHERE status IN ('kutilmoqda', 'tekshiruvda')"
+        ).fetchone()[0])
+
+
+def proof_count() -> int:
+    """Cheki kelgan, darhol javob kutayotgan so'rovlar."""
+    with conn() as c:
+        return int(c.execute(
+            "SELECT COUNT(*) FROM subscription_requests WHERE status = 'tekshiruvda'"
         ).fetchone()[0])
 
 

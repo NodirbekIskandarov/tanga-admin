@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
-                               StreamingResponse)
+                               Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -317,21 +317,36 @@ async def user_action(request: Request, user_id: int,
 
 @app.get("/sorovlar", response_class=HTMLResponse)
 def requests_page(request: Request, session: dict = Depends(current_admin),
-                  holat: str = "kutilmoqda", message: str = ""):
+                  holat: str = "ochiq", message: str = ""):
     return page(request, session, "requests.html",
                 rows=store.list_requests(holat, 200), holat=holat, message=message)
+
+
+@app.get("/sorovlar/{req_id}/chek")
+async def request_proof(req_id: int, session: dict = Depends(current_admin)):
+    """To'lov chekini ko'rsatadi. Rasm Telegramdan olinadi, serverda saqlanmaydi."""
+    req = store.get_request(req_id)
+    if not req or not req.get("proof_file_id"):
+        raise HTTPException(404, "Chek biriktirilmagan")
+    result = await telegram.fetch_file(req["proof_file_id"])
+    if not result:
+        raise HTTPException(502, "Chekni Telegramdan olib bo'lmadi")
+    content, mime = result
+    return Response(content=content, media_type=mime,
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.post("/sorovlar/{req_id}")
 async def request_decide(request: Request, req_id: int,
                          session: dict = Depends(current_admin),
-                         csrf: str = Form(""), qaror: str = Form("")):
+                         csrf: str = Form(""), qaror: str = Form(""),
+                         sabab: str = Form("")):
     require_csrf(request, session, csrf)
     admin, ip = session["u"], client_ip(request)
     req = store.get_request(req_id)
     if not req:
         raise HTTPException(404, "So'rov topilmadi")
-    if req["status"] != "kutilmoqda":
+    if req["status"] not in ("kutilmoqda", "tekshiruvda"):
         return RedirectResponse("/sorovlar?message=Bu so'rov allaqachon hal qilingan",
                                 status_code=303)
 
@@ -349,13 +364,16 @@ async def request_decide(request: Request, req_id: int,
             f"Rahmat! Holatni ko'rish: /holat")
         msg = "Tasdiqlandi va foydalanuvchiga xabar berildi."
     else:
-        store.decide_request(req_id, "rad etildi", admin)
+        reason = (sabab or "").strip()
+        store.decide_request(req_id, "rad etildi", admin, reason)
         store.log_action(admin, "so'rov rad etildi", req["user_id"],
-                         plans.label(req["plan_code"]), ip)
+                         f"{plans.label(req['plan_code'])} | {reason}"[:200], ip)
+        tail = f"\n\n<b>Sabab:</b> {reason}" if reason else ""
         await telegram.send_message(
             req["user_id"],
-            "So'rovingiz hozircha tasdiqlanmadi. Savolingiz bo'lsa "
-            "administratorga yozing.")
+            f"❌ <b>To'lov tasdiqlanmadi</b>{tail}\n\n"
+            f"To'lovni qayta tekshirib, chekni yana yuboring yoki "
+            f"administrator bilan bog'laning. Tariflar: /obuna")
         msg = "Rad etildi."
 
     return RedirectResponse(f"/sorovlar?message={msg}", status_code=303)

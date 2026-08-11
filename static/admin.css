@@ -222,7 +222,8 @@ td.nowrap { white-space: nowrap; }
 .tag.sinov      { background: var(--warn-bg); color: var(--warn); }
 .tag.tugagan    { background: var(--mute-bg); color: var(--ink-3); }
 .tag.bloklangan { background: var(--danger-bg); color: var(--danger); }
-.tag.kutilmoqda { background: var(--warn-bg); color: var(--warn); }
+.tag.kutilmoqda  { background: var(--mute-bg); color: var(--ink-2); }
+.tag.tekshiruvda { background: var(--warn-bg); color: var(--warn); }
 .tag.tasdiqlandi{ background: var(--ok-bg);   color: var(--ok); }
 .tag\.rad, .tag.rad { background: var(--danger-bg); color: var(--danger); }
 

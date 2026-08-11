@@ -8,69 +8,147 @@
 <div class="card">
   <div class="pad">
     <div class="row">
-      {% for v, t in [('kutilmoqda','Kutilmoqda'), ('tasdiqlandi','Tasdiqlangan'),
-                      ('rad etildi','Rad etilgan'), ('','Hammasi')] %}
+      {% for v, t in [('ochiq','Javob kutmoqda'), ('tekshiruvda','Cheki kelgan'),
+                      ('tasdiqlandi','Tasdiqlangan'), ('rad etildi','Rad etilgan'),
+                      ('','Hammasi')] %}
         <a class="btn {{ 'pri' if holat == v }}" href="/sorovlar?holat={{ v|urlencode }}">{{ t }}</a>
       {% endfor %}
     </div>
   </div>
 </div>
 
-<div class="card">
-  <h2>{{ rows|length }} ta so'rov</h2>
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Kelgan vaqt</th><th>Foydalanuvchi</th><th>Tarif</th>
-          <th class="num">Summa</th><th>Holat</th><th>Hal qilgan</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for r in rows %}
-        <tr>
-          <td class="mono nowrap">{{ r.created_at|dt }}</td>
-          <td>
-            <a href="/foydalanuvchilar/{{ r.user_id }}"><b>{{ r.first_name or r.user_id }}</b></a>
-            {% if r.username %}<div style="color:var(--ink-3);font-size:12.5px">@{{ r.username }}</div>{% endif %}
-          </td>
-          <td>{{ r.plan_code }}</td>
-          <td class="num">{{ r.price|som }}</td>
-          <td><span class="tag {{ 'kutilmoqda' if r.status == 'kutilmoqda' else ('tasdiqlandi' if r.status == 'tasdiqlandi' else 'rad') }}">{{ r.status }}</span></td>
-          <td style="color:var(--ink-3);font-size:13px">
-            {% if r.decided_by %}{{ r.decided_by }}<br>{{ r.decided_at|dt }}{% else %}—{% endif %}
-          </td>
-          <td class="nowrap">
-            {% if r.status == 'kutilmoqda' %}
-              <form method="post" action="/sorovlar/{{ r.id }}" style="display:inline">
-                <input type="hidden" name="csrf" value="{{ csrf }}">
-                <input type="hidden" name="qaror" value="tasdiq">
-                <button class="btn sm ok" type="submit"
-                        onclick="return confirm('To\'lov qabul qilindimi? Obuna darhol faollashadi.')">
-                  ✓ Tasdiqlash
-                </button>
-              </form>
-              <form method="post" action="/sorovlar/{{ r.id }}" style="display:inline">
-                <input type="hidden" name="csrf" value="{{ csrf }}">
-                <input type="hidden" name="qaror" value="rad">
-                <button class="btn sm dan" type="submit">✕ Rad etish</button>
-              </form>
+{% for r in rows %}
+  {% set ochiq = r.status in ('kutilmoqda', 'tekshiruvda') %}
+  <div class="card req {{ 'live' if r.status == 'tekshiruvda' }}">
+    <h2>
+      <span class="tag {{ 'kutilmoqda' if r.status == 'kutilmoqda' else ('tasdiqlandi' if r.status == 'tasdiqlandi' else ('tekshiruvda' if r.status == 'tekshiruvda' else 'rad')) }}">
+        {{ 'chek keldi' if r.status == 'tekshiruvda' else r.status }}
+      </span>
+      <span style="font-family:var(--sans);text-transform:none;letter-spacing:0;color:var(--ink)">
+        #{{ r.id }}
+      </span>
+      <span class="spacer"></span>
+      <span style="font-family:var(--sans);text-transform:none;letter-spacing:0;font-weight:400">
+        {{ r.created_at|dt }}
+      </span>
+    </h2>
+
+    <div class="req-body">
+      <div class="req-info">
+        <dl>
+          <dt>Foydalanuvchi</dt>
+          <dd>
+            <a href="/foydalanuvchilar/{{ r.user_id }}"><b>{{ r.first_name or 'Nomsiz' }}</b></a>
+            {% if r.username %}<span style="color:var(--ink-3)"> @{{ r.username }}</span>{% endif %}
+          </dd>
+
+          <dt>Telegram ID</dt>
+          <dd class="mono">{{ r.user_id }}</dd>
+
+          <dt>Tarif</dt>
+          <dd><b>{{ r.plan_code }}</b> — {{ r.price|som }} so'm</dd>
+
+          <dt>Chek</dt>
+          <dd>
+            {% if r.proof_file_id %}
+              ✅ yuborilgan · {{ r.proof_at|dt }}
+            {% else %}
+              <span style="color:var(--warn)">⏳ hali kelmagan</span>
             {% endif %}
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="7" class="empty">So'rov yo'q.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+          </dd>
+
+          {% if r.decided_by %}
+            <dt>Hal qilgan</dt>
+            <dd>{{ r.decided_by }} · {{ r.decided_at|dt }}</dd>
+          {% endif %}
+          {% if r.note %}
+            <dt>Izoh</dt>
+            <dd>{{ r.note }}</dd>
+          {% endif %}
+        </dl>
+
+        {% if ochiq %}
+          <div class="req-actions">
+            <form method="post" action="/sorovlar/{{ r.id }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="qaror" value="tasdiq">
+              <button class="btn ok" type="submit"
+                      onclick="return confirm('To\'lov haqiqatan tushdimi? Obuna darhol faollashadi va foydalanuvchiga xabar boradi.')">
+                ✓ Tasdiqlash — obunani yoqish
+              </button>
+            </form>
+
+            <form method="post" action="/sorovlar/{{ r.id }}" class="reject">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="qaror" value="rad">
+              <input type="text" name="sabab" maxlength="200"
+                     placeholder="Rad etish sababi (foydalanuvchiga ko'rinadi)">
+              <button class="btn dan" type="submit">✕ Rad etish</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="req-proof">
+        {% if r.proof_file_id %}
+          <a href="/sorovlar/{{ r.id }}/chek" target="_blank" rel="noopener">
+            <img src="/sorovlar/{{ r.id }}/chek" alt="To'lov cheki" loading="lazy">
+          </a>
+          <div class="hint" style="text-align:center">Kattalashtirish uchun bosing</div>
+        {% else %}
+          <div class="no-proof">
+            <div style="font-size:30px">🧾</div>
+            <div>Chek hali<br>yuborilmagan</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </div>
-</div>
+{% else %}
+  <div class="card"><div class="empty">Bu bo'limda so'rov yo'q.</div></div>
+{% endfor %}
 
 <div class="note">
-  <b>Qanday ishlaydi.</b> Foydalanuvchi botda «💎 Obuna» tugmasini bosib tarif
-  tanlaydi — so'rov shu yerga tushadi. To'lovni qabul qilganingizdan keyin
-  «Tasdiqlash» bosing: obuna faollashadi, to'lov moliya hisobotiga yoziladi va
-  foydalanuvchiga Telegram orqali xabar boradi.
+  <b>Qanday ishlaydi.</b> Foydalanuvchi botda tarif tanlaydi → karta
+  rekvizitlarini oladi → pul o'tkazadi → chek skrinshotini yuboradi.
+  Chek shu yerda ko'rinadi. «Tasdiqlash» bosilganda obuna darhol
+  faollashadi, to'lov moliya hisobotiga tushadi va foydalanuvchiga
+  Telegram orqali xabar boradi.
 </div>
+
+<style>
+  .req.live { border-color: var(--warn); }
+  .req-body { display: grid; grid-template-columns: 1fr 300px; gap: 0; }
+  .req-info { padding: 18px; }
+  .req-proof {
+    border-left: 1px solid var(--line); padding: 18px;
+    display: flex; flex-direction: column; gap: 8px; justify-content: center;
+  }
+  .req-proof img {
+    width: 100%; max-height: 340px; object-fit: contain;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+    display: block;
+  }
+  .no-proof {
+    text-align: center; color: var(--ink-3); font-size: 13.5px;
+    padding: 40px 10px; border: 1px dashed var(--line); border-radius: 6px;
+    display: flex; flex-direction: column; gap: 10px; align-items: center;
+  }
+  dl { display: grid; grid-template-columns: 130px 1fr; gap: 7px 14px; margin: 0 0 18px; }
+  dt {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-3); padding-top: 3px;
+  }
+  dd { margin: 0; }
+  .req-actions { display: flex; flex-direction: column; gap: 10px; }
+  .req-actions form.reject { display: flex; gap: 8px; }
+  .req-actions form.reject input { flex: 1; }
+  @media (max-width: 820px) {
+    .req-body { grid-template-columns: 1fr; }
+    .req-proof { border-left: none; border-top: 1px solid var(--line); }
+    dl { grid-template-columns: 1fr; gap: 2px; }
+    dt { padding-top: 8px; }
+  }
+</style>
 
 {% endblock %}
