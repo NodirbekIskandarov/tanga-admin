@@ -19,6 +19,7 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <form className="login-box" onSubmit={onSubmit}>
+        <img className="login-mark" src="/icon-180.png" alt="Tanga" width="72" height="72" />
         <h1>Tanga</h1>
         <p className="sub">Admin boshqaruv paneli</p>
 

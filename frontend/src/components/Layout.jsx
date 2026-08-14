@@ -45,7 +45,7 @@ export default function Layout() {
       <aside className="side">
         <div className="brand">
           <div className="logo">
-            <span className="dot" /> Tanga
+            <img className="mark" src="/icon-32.png" alt="" width="20" height="20" /> Tanga
           </div>
           <div className="sub">Boshqaruv paneli</div>
         </div>
