@@ -33,9 +33,6 @@ export default function UserDetail() {
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
 
   const u = data.user;
-  // Izohlar ochilgan bo'lsa to'liq ro'yxatni ko'rsatamiz, aks holda
-  // kartaning izohsiz ro'yxatini.
-  const rows = notes || u.recent_tx;
   const plans = data.plans;
   const chosenPlan = planCode || plans[0]?.code;
 
@@ -168,55 +165,70 @@ export default function UserDetail() {
           </Card>
 
           <Card
-            title="Oxirgi yozuvlar"
+            title="Yozuvlari"
             action={
-              notes ? null : (
+              notes ? (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  ochildi · jurnalga yozildi
+                </span>
+              ) : (
                 <button
                   className="btn sm"
-                  disabled={notesLoading}
+                  disabled={notesLoading || u.tx_count === 0}
                   onClick={() => loadNotes(id)}
                 >
-                  {notesLoading ? "Yuklanmoqda…" : "Izohlarni ko'rish"}
+                  {notesLoading ? "Yuklanmoqda…" : "Ochib ko'rish"}
                 </button>
               )
             }
           >
-            {!notes && (
-              <p className="muted" style={{ margin: "0 0 10px", fontSize: "13px" }}>
-                Izohlar foydalanuvchining shaxsiy yozuvi. Ular ochilsa,
-                jurnalga yoziladi.
-              </p>
-            )}
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Sana</th>
-                    <th>Turi</th>
-                    <th>Kategoriya</th>
-                    <th>Izoh</th>
-                    <th className="num">Summa</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && <Empty colSpan={5}>Yozuv yo'q.</Empty>}
-                  {rows.map((t) => (
-                    <tr key={t.id}>
-                      <td className="mono nowrap">{t.occurred_on}</td>
-                      <td>{t.kind}</td>
-                      <td>{t.category}</td>
-                      <td className="muted">
-                        {notes ? (t.note || "").slice(0, 48) : "•••"}
-                      </td>
-                      <td className="num">
-                        {t.currency === "usd" ? usd(t.amount) : som(t.amount)}
-                      </td>
+            {!notes ? (
+              /* Yozuvlar YOPIQ turadi: sana, kategoriya va summaning
+                 o'zi ham shaxsiy moliya. Kundalik ish uchun soni
+                 yetarli — ro'yxatni ochish ongli harakat bo'lsin. */
+              <div className="pad">
+                <p style={{ margin: "0 0 6px", fontSize: 15 }}>
+                  <b>{u.tx_count}</b> ta yozuv
+                </p>
+                <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                  {u.tx_count === 0
+                    ? "Foydalanuvchi hali hech narsa yozmagan."
+                    : "Yozuvlar foydalanuvchining shaxsiy moliyasi — sana, " +
+                      "kategoriya va summa ham shunga kiradi. Ro'yxatni " +
+                      "ochsangiz, bu jurnalga yoziladi."}
+                </p>
+              </div>
+            ) : (
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Sana</th>
+                      <th>Turi</th>
+                      <th>Kategoriya</th>
+                      <th>Izoh</th>
+                      <th className="num">Summa</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {notes.length === 0 && <Empty colSpan={5}>Yozuv yo'q.</Empty>}
+                    {notes.map((t) => (
+                      <tr key={t.id}>
+                        <td className="mono nowrap">{t.occurred_on}</td>
+                        <td>{t.kind}</td>
+                        <td>{t.category}</td>
+                        <td className="muted">{(t.note || "").slice(0, 48)}</td>
+                        <td className="num">
+                          {t.currency === "usd" ? usd(t.amount) : som(t.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
+
           <Card
             title="Shaxsiy xabar yuborish"
             action={

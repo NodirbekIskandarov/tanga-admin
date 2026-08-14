@@ -367,15 +367,13 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
                FROM usage_log WHERE user_id = ? GROUP BY operation ORDER BY cost DESC""",
             (user_id,)).fetchall()]
         u["cost_usd"] = round(sum(x["cost"] or 0 for x in u["usage"]), 4)
-        # Izoh (`note`) ATAYLAB olinmaydi. U foydalanuvchining shaxsiy
-        # yozuvi — «Aliga qarz», «shifokorga». Adminning kundalik ishi
-        # (obuna, to'lov, limit) uchun summa va kategoriya yetarli.
-        # Izohli to'liq ro'yxat alohida so'rov bilan olinadi va o'sha
-        # so'rov jurnalga yoziladi — user_transactions() ga qarang.
-        u["recent_tx"] = [dict(r) for r in c.execute(
-            """SELECT id, occurred_on, kind, amount, currency, category
-               FROM transactions WHERE user_id = ?
-               ORDER BY occurred_on DESC, id DESC LIMIT 15""", (user_id,)).fetchall()]
+        # Yozuvlar ro'yxati ATAYLAB olinmaydi — na summa, na kategoriya,
+        # na izoh. Kategoriya va summaning o'zi ham shaxsiy moliya:
+        # «6 800 760 — oylik», «62 556 — oziq-ovqat» odam haqida ko'p
+        # narsa aytadi. Adminning kundalik ishi (obuna, to'lov, limit)
+        # uchun yozuvlar SONI yetarli; ro'yxatning o'zi alohida so'rov
+        # bilan olinadi va o'sha so'rov jurnalga yoziladi —
+        # user_transactions() ga qarang.
         u["payments"] = [dict(r) for r in c.execute(
             "SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 10",
             (user_id,)).fetchall()]
