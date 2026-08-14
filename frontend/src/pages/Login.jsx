@@ -19,7 +19,7 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <form className="login-box" onSubmit={onSubmit}>
-        <h1>Hisobchi AI</h1>
+        <h1>Tanga</h1>
         <p className="sub">Admin boshqaruv paneli</p>
 
         {error && <div className="note bad">{error}</div>}

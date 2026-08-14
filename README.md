@@ -1,6 +1,6 @@
-# Hisobchi AI — admin boshqaruv paneli
+# Tanga — admin boshqaruv paneli
 
-[Hisobchi AI](https://github.com/NodirbekIskandarov/hisobchim) botining alohida
+[Tanga](https://github.com/NodirbekIskandarov/tanga) botining alohida
 web boshqaruv paneli. Bot bilan **bir xil** SQLite bazasini ishlatadi, o'zi
 alohida jarayon sifatida ishlaydi.
 
@@ -29,7 +29,7 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 - 5 ta xato urinishdan keyin 15 daqiqaga qulflanadi; xato login va xato parol
   bir xil javob beradi (hisob nomini taxmin qilishga yo'l qo'ymaydi)
 - `noindex, nofollow` — qidiruv tizimlariga tushmaydi
-- Xizmat `hisobchi` foydalanuvchisi ostida, `ProtectSystem=strict` bilan ishlaydi
+- Xizmat `tanga` foydalanuvchisi ostida, `ProtectSystem=strict` bilan ishlaydi
 - Faqat `127.0.0.1:8100` da tinglaydi — tashqariga Caddy orqali HTTPS bilan chiqadi
 
 ---
@@ -37,8 +37,8 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 ## O'rnatish
 
 ```bash
-git clone https://github.com/NodirbekIskandarov/hisobchim-admin.git /opt/hisobchim-admin
-cd /opt/hisobchim-admin
+git clone https://github.com/NodirbekIskandarov/tanga-admin.git /opt/tanga-admin
+cd /opt/tanga-admin
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 
@@ -50,15 +50,15 @@ chmod 600 .env
 # Birinchi admin hisobi — parol ekranga chiqadi, saqlab qo'ying
 ./.venv/bin/python manage.py admin-qoshish nodirbek "Nodirbek Iskandarov"
 
-sudo cp deploy/hisobchim-admin.service /etc/systemd/system/
+sudo cp deploy/tanga-admin.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now hisobchim-admin
+sudo systemctl enable --now tanga-admin
 ```
 
 Caddy blogi:
 
 ```
-hisobchim.niskandarov.uz {
+tanga.niskandarov.uz {
     encode gzip
     reverse_proxy 127.0.0.1:8100
 }
@@ -77,7 +77,7 @@ python manage.py kalit                         # ADMIN_SECRET_KEY yaratish
 
 | Kalit | Ma'nosi |
 |---|---|
-| `DB_PATH` | Bot bazasi yo'li (`/opt/hisobchi/hisobchi.db`) |
+| `DB_PATH` | Bot bazasi yo'li (`/opt/tanga/tanga.db`) |
 | `ADMIN_SECRET_KEY` | Sessiya imzosi. Almashtirilsa hamma seans tugaydi |
 | `TELEGRAM_TOKEN` | Xabar yuborish uchun — bot bilan bir xil |
 | `OWNER_IDS` | Bot egalari; panelda «ega» deb ko'rsatiladi, ommaviy xabarga kirmaydi |

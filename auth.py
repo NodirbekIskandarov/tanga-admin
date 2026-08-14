@@ -50,7 +50,7 @@ def generate_password(words: int = 4) -> str:
 # Sessiya cookie
 # --------------------------------------------------------------------------- #
 
-COOKIE_NAME = "hisobchim_admin"
+COOKIE_NAME = "tanga_admin"
 
 
 def _sign(payload: bytes) -> str:

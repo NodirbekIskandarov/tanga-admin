@@ -1,4 +1,4 @@
-"""Hisobchi AI — admin boshqaruv paneli (JSON API + React SPA).
+"""Tanga — admin boshqaruv paneli (JSON API + React SPA).
 
 Frontend alohida React ilovasi (frontend/), yig'ilgan fayllar static/dist
 ichida turadi va shu yerdan beriladi. Barcha ma'lumot /api/* orqali

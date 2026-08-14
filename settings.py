@@ -28,7 +28,7 @@ def _load_env() -> None:
 _load_env()
 
 # Bot bilan BIR XIL baza fayli — admin panel o'sha ma'lumotni boshqaradi.
-DB_PATH = os.getenv("DB_PATH", "/opt/hisobchi/hisobchi.db")
+DB_PATH = os.getenv("DB_PATH", "/opt/tanga/tanga.db")
 
 # Telegram xabar yuborish uchun (obuna tasdiqlandi, ommaviy xabar).
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
@@ -49,7 +49,7 @@ TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 # Foyda hisobini so'mda ko'rsatish uchun (AI xarajati dollarda keladi).
 USD_RATE = float(os.getenv("USD_RATE", "12600"))
 
-APP_NAME = os.getenv("APP_NAME", "Hisobchi AI — Admin")
+APP_NAME = os.getenv("APP_NAME", "Tanga — Admin")
 
 
 def missing() -> list[str]:

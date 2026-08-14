@@ -45,7 +45,7 @@ export default function Layout() {
       <aside className="side">
         <div className="brand">
           <div className="logo">
-            <span className="dot" /> Hisobchi AI
+            <span className="dot" /> Tanga
           </div>
           <div className="sub">Boshqaruv paneli</div>
         </div>

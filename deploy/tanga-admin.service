@@ -1,17 +1,17 @@
 [Unit]
-Description=Hisobchi AI admin boshqaruv paneli
+Description=Tanga admin boshqaruv paneli
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=hisobchi
-Group=hisobchi
-WorkingDirectory=/opt/hisobchim-admin
-EnvironmentFile=/opt/hisobchim-admin/.env
+User=tanga
+Group=tanga
+WorkingDirectory=/opt/tanga-admin
+EnvironmentFile=/opt/tanga-admin/.env
 # Caddy Docker konteynerida ishlaydi, shuning uchun 127.0.0.1 emas, docker
 # ko'prigining host manzili. Bu manzil tashqi tarmoqdan yo'naltirilmaydi.
-ExecStart=/opt/hisobchim-admin/.venv/bin/uvicorn app:app --host 172.30.0.1 --port 8100 --proxy-headers --forwarded-allow-ips *
+ExecStart=/opt/tanga-admin/.venv/bin/uvicorn app:app --host 172.30.0.1 --port 8100 --proxy-headers --forwarded-allow-ips *
 Restart=always
 RestartSec=10
 
@@ -27,7 +27,7 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 # Bot bazasi va o'z katalogi — yozish faqat shu ikkisiga
-ReadWritePaths=/opt/hisobchim-admin /opt/hisobchi
+ReadWritePaths=/opt/tanga-admin /opt/tanga
 
 [Install]
 WantedBy=multi-user.target
