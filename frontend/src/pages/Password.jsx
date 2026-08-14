@@ -101,7 +101,7 @@ export default function Password() {
                     </td>
                     <td>{a.full_name || "—"}</td>
                     <td>
-                      <Tag kind={a.is_active ? "obunachi" : "tugagan"}>
+                      <Tag kind={a.is_active ? "ok" : "tugagan"}>
                         {a.is_active ? "faol" : "o'chirilgan"}
                       </Tag>
                     </td>
@@ -112,7 +112,7 @@ export default function Password() {
             </table>
           </div>
         )}
-        <div className="pad" style={{ borderTop: "1px solid var(--line)" }}>
+        <div className="pad" style={{ borderTop: "1px solid var(--border)" }}>
           <p className="hint" style={{ margin: 0 }}>
             Yangi admin qo'shish serverda amalga oshiriladi:
             <br />

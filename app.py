@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import mimetypes
 import os
 import time
 from datetime import datetime
@@ -162,14 +163,7 @@ def _iso(value) -> str | None:
 
 
 def _plans() -> list[dict]:
-    return [
-        {**p,
-         "monthly": plans.SUBSCRIPTION_PLANS and round(p["price"] / p["months"]),
-         "discount": round(100 * (1 - (p["price"] / p["months"]) /
-                                  plans.SUBSCRIPTION_PLANS[0]["price"]))
-         if p["months"] > 1 else 0}
-        for p in plans.SUBSCRIPTION_PLANS
-    ]
+    return [{**p, "discount": plans.discount_percent(p)} for p in plans.all_plans()]
 
 
 # --------------------------------------------------------------------------- #
@@ -265,6 +259,9 @@ def api_dashboard(session: dict = Depends(current_admin)):
         "expiring": expiring,
         "payments": store.recent_payments(8),
         "requests": store.list_requests("ochiq", 5),
+        "stats": store.stats(OWNER_IDS),
+        "activity": store.activity_counts(OWNER_IDS),
+        "log": [dict(r) for r in store.list_log(8, 0)],
         "usd_rate": settings.USD_RATE,
     }
 
@@ -277,14 +274,19 @@ def api_dashboard(session: dict = Depends(current_admin)):
 def api_users(session: dict = Depends(current_admin),
               q: str = Query("", max_length=64),
               holat: str = Query("", max_length=20),
+              tarif: str = Query("", max_length=10),
+              faollik: str = Query("", max_length=10),
               tartib: str = Query("yangi", max_length=20),
               sahifa: int = Query(1, ge=1, le=10_000)):
     per = 40
-    rows, total = store.list_users(q, holat, OWNER_IDS, tartib, per, (sahifa - 1) * per)
+    rows, total = store.list_users(
+        q, holat, OWNER_IDS, tartib, per, (sahifa - 1) * per,
+        plan=tarif, activity=faollik)
     return {
         "items": rows, "total": total, "page": sahifa,
         "pages": max(1, (total + per - 1) // per),
         "plans": _plans(),
+        "activity": store.activity_counts(OWNER_IDS),
     }
 
 
@@ -387,7 +389,10 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
 @app.get("/api/requests")
 def api_requests(session: dict = Depends(current_admin),
                  holat: str = Query("ochiq", max_length=20)):
-    return {"items": store.list_requests(holat, 200)}
+    return {
+        "items": store.list_requests(holat, 200),
+        "overview": store.overview(OWNER_IDS),
+    }
 
 
 @app.get("/api/requests/{req_id}/proof")
@@ -451,6 +456,85 @@ async def api_request_decide(request: Request, req_id: int, body: RequestDecisio
 
 
 # --------------------------------------------------------------------------- #
+# Statistika
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/stats")
+def api_stats(session: dict = Depends(current_admin),
+              davr: str = Query("oylik", max_length=10)):
+    if davr not in ("kunlik", "oylik", "yillik"):
+        davr = "oylik"
+    return {
+        "overview": store.overview(OWNER_IDS),
+        "stats": store.stats(OWNER_IDS),
+        "revenue": store.revenue_series(davr),
+        "usd_rate": settings.USD_RATE,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Sozlamalar
+#
+# Bu yerda o'zgargan qiymatni bot ham o'qiydi (bitta `app_settings`
+# jadvali), shuning uchun narx va rekvizit ikki joyda ajralib qolmaydi.
+# --------------------------------------------------------------------------- #
+
+class SettingsBody(BaseModel):
+    plan_price_1m: int = Field(0, ge=0, le=100_000_000)
+    plan_price_3m: int = Field(0, ge=0, le=100_000_000)
+    plan_price_6m: int = Field(0, ge=0, le=100_000_000)
+    plan_price_12m: int = Field(0, ge=0, le=100_000_000)
+    card_number: str = Field("", max_length=32)
+    card_holder: str = Field("", max_length=64)
+    trial_days: int = Field(7, ge=1, le=365)
+    ai_monthly_budget_usd: float = Field(50, gt=0, le=100_000)
+
+
+@app.get("/api/settings")
+def api_settings(session: dict = Depends(current_admin)):
+    return {
+        "plans": _plans(),
+        "bot": {
+            "card_number": settings.card_number(),
+            "card_holder": settings.card_holder(),
+            "trial_days": settings.trial_days(),
+            "ai_monthly_budget_usd": settings.ai_monthly_budget_usd(),
+        },
+        "usd_rate": settings.USD_RATE,
+    }
+
+
+@app.post("/api/settings")
+def api_settings_save(request: Request, body: SettingsBody,
+                      session: dict = Depends(writer)):
+    admin = session["u"]
+    before = {p["code"]: p["price"] for p in plans.all_plans()}
+    values = {
+        "plan_price_1m": body.plan_price_1m,
+        "plan_price_3m": body.plan_price_3m,
+        "plan_price_6m": body.plan_price_6m,
+        "plan_price_12m": body.plan_price_12m,
+        "card_number": body.card_number.strip(),
+        "card_holder": body.card_holder.strip(),
+        "trial_days": body.trial_days,
+        "ai_monthly_budget_usd": body.ai_monthly_budget_usd,
+    }
+    # Narx nolga tushib qolmasin: 0 kelsa «o'zgartirilmadi» degani.
+    for code in ("1m", "3m", "6m", "12m"):
+        if not values[f"plan_price_{code}"]:
+            values[f"plan_price_{code}"] = before[code]
+
+    store.settings_save(values, admin)
+    changed = [f"{code}: {before[code]} → {values[f'plan_price_{code}']}"
+               for code in ("1m", "3m", "6m", "12m")
+               if before[code] != values[f"plan_price_{code}"]]
+    store.log_action(admin, "sozlamalar o'zgartirildi", "",
+                     "; ".join(changed)[:200] or "rekvizit/limit",
+                     client_ip(request))
+    return {"message": "Sozlamalar saqlandi.", **api_settings(session)}
+
+
+# --------------------------------------------------------------------------- #
 # Moliya
 # --------------------------------------------------------------------------- #
 
@@ -480,23 +564,45 @@ def api_finance(session: dict = Depends(current_admin),
 # --------------------------------------------------------------------------- #
 
 SEGMENTS = {
-    "hammasi": "Hamma foydalanuvchi",
-    "sinov": "Bepul sinovdagilar",
-    "obunachi": "Obunachilar",
+    "hammasi": "Hammaga",
+    "obunachi": "Faol obunachilar",
+    "sinov": "Sinovdagilar",
     "tugagan": "Muddati tugaganlar",
 }
+
+# Bot tillari. Xabar bitta tilda yoziladi, shuning uchun uni faqat o'sha
+# tilni tanlagan odamlarga yuborish mantiqiy — «hammasi» ham bor.
+LANGS = {
+    "": "Hamma til",
+    "uz": "O'zbek lotin",
+    "uzc": "O'zbek kirill",
+    "ru": "Rus",
+}
+
+
+def _audience(segment: str, lang: str) -> list[int]:
+    return store.all_user_ids("" if segment == "hammasi" else segment,
+                              OWNER_IDS, lang=lang)
 
 
 @app.get("/api/broadcast")
 def api_broadcast_info(session: dict = Depends(current_admin)):
-    counts = {key: len(store.all_user_ids("" if key == "hammasi" else key, OWNER_IDS))
-              for key in SEGMENTS}
-    return {"segments": SEGMENTS, "counts": counts}
+    counts = {key: len(_audience(key, "")) for key in SEGMENTS}
+    by_lang = {
+        code: {seg: len(_audience(seg, code)) for seg in SEGMENTS}
+        for code in LANGS
+    }
+    return {
+        "segments": SEGMENTS, "counts": counts,
+        "langs": LANGS, "byLang": by_lang,
+        "langCounts": store.lang_counts(OWNER_IDS),
+    }
 
 
 class BroadcastBody(BaseModel):
     segment: str = Field(max_length=20)
     matn: str = Field(min_length=1, max_length=3500)
+    til: str = Field("", max_length=5)
     tasdiq: bool = False
 
 
@@ -505,13 +611,17 @@ async def api_broadcast(request: Request, body: BroadcastBody,
                         session: dict = Depends(writer)):
     if body.segment not in SEGMENTS:
         raise HTTPException(400, "Noma'lum segment")
+    if body.til not in LANGS:
+        raise HTTPException(400, "Noma'lum til")
     if not body.tasdiq:
         raise HTTPException(400, "Yuborishni tasdiqlang")
     text = body.matn.strip()
-    ids = store.all_user_ids("" if body.segment == "hammasi" else body.segment,
-                             OWNER_IDS)
+    ids = _audience(body.segment, body.til)
     result = await telegram.broadcast(ids, text)
-    store.log_action(session["u"], "ommaviy xabar", SEGMENTS[body.segment],
+    target = SEGMENTS[body.segment]
+    if body.til:
+        target += f" · {LANGS[body.til]}"
+    store.log_action(session["u"], "ommaviy xabar", target,
                      f"{result['ok']} yuborildi, {result['failed']} xato | "
                      f"{text[:100]}", client_ip(request))
     return {"message": f"{result['ok']} ta yuborildi, "
@@ -591,8 +701,23 @@ def health():
 # ushlagich /api/* so'rovlarini ham tutib qolardi.
 # --------------------------------------------------------------------------- #
 
+# Python `.woff2` ni bilmaydi — ro'yxatga qo'shmasak StaticFiles noto'g'ri
+# turdagi javob beradi.
+mimetypes.add_type("font/woff2", ".woff2")
+
 if (DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
+
+# Shriftlar o'zimizda turadi (CSP `font-src 'self'`). Ular papka ichida
+# bo'lgani uchun quyidagi SPA ushlagichiga tushib ketmasin — alohida
+# ulanadi va uzoq muddatga keshlanadi: fayl nomi o'zgarmaydi, lekin
+# mazmuni ham o'zgarmaydi.
+if (DIST / "fonts").exists():
+    app.mount(
+        "/fonts",
+        StaticFiles(directory=str(DIST / "fonts")),
+        name="fonts",
+    )
 
 
 @app.get("/{full_path:path}")

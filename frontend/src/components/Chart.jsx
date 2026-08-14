@@ -10,6 +10,19 @@ function cssVar(name, fallback) {
   return v || fallback;
 }
 
+/**
+ * Rang nomi `--brass` ko'rinishida berilsa — palitradan olinadi.
+ * Canvas `var(...)` ni tushunmaydi, shuning uchun chizishdan oldin
+ * qiymatga aylantiriladi. Buning foydasi: rejim almashganda grafik
+ * ham to'g'ri rangga o'tadi.
+ */
+function resolve(color, fallback = "#8A97A4") {
+  if (typeof color === "string" && color.startsWith("--")) {
+    return cssVar(color, fallback);
+  }
+  return color || fallback;
+}
+
 function prepare(canvas, height) {
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || canvas.parentElement?.clientWidth || 600;
@@ -29,9 +42,9 @@ function niceMax(value) {
 }
 
 function drawAxis(ctx, { padL, padT, w, h }, labels, formatter) {
-  ctx.font = "11px ui-monospace, Consolas, monospace";
-  ctx.fillStyle = cssVar("--ink-3", "#7C8798");
-  ctx.strokeStyle = cssVar("--line", "#D9E0EA");
+  ctx.font = "11px 'JetBrains Mono', ui-monospace, Consolas, monospace";
+  ctx.fillStyle = cssVar("--text-3", "#8A97A4");
+  ctx.strokeStyle = cssVar("--border", "#DDE3E9");
   ctx.lineWidth = 1;
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
@@ -46,7 +59,7 @@ function drawAxis(ctx, { padL, padT, w, h }, labels, formatter) {
 }
 
 function drawDates(ctx, { padL, padT, w, h }, labels, xOf) {
-  ctx.fillStyle = cssVar("--ink-3", "#7C8798");
+  ctx.fillStyle = cssVar("--text-3", "#8A97A4");
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   labels.forEach((label, i) => {
@@ -79,7 +92,7 @@ export function BarChart({ labels, series, height = 200 }) {
       const slot = box.w / labels.length;
       const bw = Math.max(1.5, Math.min(9, slot / (series.length + 1)));
       series.forEach((s, si) => {
-        ctx.fillStyle = s.color;
+        ctx.fillStyle = resolve(s.color);
         s.data.forEach((v, i) => {
           const bh = (v / max) * box.h;
           const x =
@@ -94,11 +107,16 @@ export function BarChart({ labels, series, height = 200 }) {
     draw();
     const onResize = () => draw();
     window.addEventListener("resize", onResize);
-    const theme = window.matchMedia?.("(prefers-color-scheme: dark)");
-    theme?.addEventListener("change", draw);
+    // Ranglar CSS o'zgaruvchilaridan olinadi — rejim almashsa qayta
+    // chizilmasa, grafik eski palitrada qolib ketadi.
+    const watch = new MutationObserver(draw);
+    watch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     return () => {
       window.removeEventListener("resize", onResize);
-      theme?.removeEventListener("change", draw);
+      watch.disconnect();
     };
   }, [labels, series, height]);
 
@@ -132,8 +150,9 @@ export function LineChart({ labels, data, color, height = 200, format }) {
       data.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v)));
       ctx.lineTo(xOf(data.length - 1), box.padT + box.h);
       ctx.closePath();
+      const stroke = resolve(color);
       ctx.globalAlpha = 0.13;
-      ctx.fillStyle = color;
+      ctx.fillStyle = stroke;
       ctx.fill();
       ctx.globalAlpha = 1;
 
@@ -141,14 +160,14 @@ export function LineChart({ labels, data, color, height = 200, format }) {
       data.forEach((v, i) =>
         i ? ctx.lineTo(xOf(i), yOf(v)) : ctx.moveTo(xOf(i), yOf(v))
       );
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = stroke;
       ctx.lineWidth = 2;
       ctx.lineJoin = "round";
       ctx.stroke();
 
       ctx.beginPath();
       ctx.arc(xOf(data.length - 1), yOf(data.at(-1)), 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
+      ctx.fillStyle = stroke;
       ctx.fill();
 
       drawDates(ctx, box, labels, xOf);
@@ -157,11 +176,16 @@ export function LineChart({ labels, data, color, height = 200, format }) {
     draw();
     const onResize = () => draw();
     window.addEventListener("resize", onResize);
-    const theme = window.matchMedia?.("(prefers-color-scheme: dark)");
-    theme?.addEventListener("change", draw);
+    // Ranglar CSS o'zgaruvchilaridan olinadi — rejim almashsa qayta
+    // chizilmasa, grafik eski palitrada qolib ketadi.
+    const watch = new MutationObserver(draw);
+    watch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     return () => {
       window.removeEventListener("resize", onResize);
-      theme?.removeEventListener("change", draw);
+      watch.disconnect();
     };
   }, [labels, data, color, height, format]);
 
@@ -173,7 +197,11 @@ export function Legend({ items }) {
     <div className="legend">
       {items.map((it) => (
         <span key={it.label}>
-          <i style={{ background: it.color }} />
+          <i
+            style={{
+              background: it.color?.startsWith("--") ? `var(${it.color})` : it.color,
+            }}
+          />
           {it.label}
         </span>
       ))}

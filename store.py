@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS payments (
     created_by TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_pay_time ON payments(created_at DESC);
+
+-- Admin panelda o'zgartiriladigan sozlamalar: tarif narxlari, karta
+-- rekvizitlari, sinov muddati, AI limiti. Bot ham SHU jadvalni o'qiydi —
+-- narx ikki joyda alohida turmasin va desinxron bo'lib qolmasin.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_by TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -262,6 +272,32 @@ def count_log() -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Sozlamalar
+#
+# Bu qiymatlarni admin panelda o'zgartirish mumkin. Bot ham shu jadvalni
+# o'qiydi, shuning uchun narx bir joyda turadi.
+# --------------------------------------------------------------------------- #
+
+def settings_all() -> dict[str, str]:
+    with conn() as c:
+        return {r["key"]: r["value"]
+                for r in c.execute("SELECT key, value FROM app_settings").fetchall()}
+
+
+def settings_save(values: dict[str, str], admin: str) -> None:
+    stamp = now_iso()
+    with conn() as c:
+        for key, value in values.items():
+            c.execute(
+                "INSERT INTO app_settings (key, value, updated_at, updated_by) "
+                "VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                "value = excluded.value, updated_at = excluded.updated_at, "
+                "updated_by = excluded.updated_by",
+                (key, str(value), stamp, admin),
+            )
+
+
+# --------------------------------------------------------------------------- #
 # Foydalanuvchilar
 # --------------------------------------------------------------------------- #
 
@@ -290,10 +326,26 @@ def days_left(row) -> int | None:
     return None
 
 
+def _days_since(raw) -> int | None:
+    """Oxirgi faollikdan beri necha KUN o'tgani — kalendar bo'yicha.
+
+    Ataylab o'tgan soatlar emas: odam «2 kun oldin» deganda ikkita
+    sana orqaga tushishni tushunadi. Soat bilan hisoblansa kecha
+    kechqurun kirgan odam bugun ertalab «bugun» deb ko'rinardi va
+    kechagi 45 soat «1 kun» bo'lib qolardi.
+    """
+    seen = _parse(raw)
+    if not seen:
+        return None
+    return max(0, (datetime.now(settings.TZ).date() - seen.date()).days)
+
+
 def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = None,
-               sort: str = "yangi", limit: int = 50, offset: int = 0) -> tuple[list, int]:
-    """Foydalanuvchilar ro'yxati. Holat bo'yicha filtr Python tomonida —
-    u sana taqqoslashiga bog'liq va foydalanuvchilar soni kichik."""
+               sort: str = "yangi", limit: int = 50, offset: int = 0,
+               plan: str = "", activity: str = "") -> tuple[list, int]:
+    """Foydalanuvchilar ro'yxati. Holat, tarif va faollik bo'yicha filtr
+    Python tomonida — ular sana taqqoslashiga bog'liq va foydalanuvchilar
+    soni kichik."""
     owner_ids = owner_ids or set()
     where, params = [], []
     if search.strip():
@@ -314,15 +366,37 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
         costs = dict(c.execute(
             "SELECT user_id, ROUND(SUM(cost_usd), 4) FROM usage_log GROUP BY user_id"
         ).fetchall())
+        # Oxirgi to'langan tarif — ro'yxatdagi «Tarif» ustuni uchun.
+        last_plan = dict(c.execute(
+            "SELECT user_id, plan_code FROM payments WHERE id IN "
+            "(SELECT MAX(id) FROM payments GROUP BY user_id)").fetchall())
+        paid = dict(c.execute(
+            "SELECT user_id, COUNT(*) FROM payments GROUP BY user_id").fetchall())
 
     for r in rows:
         r["state"] = access_state(r, owner_ids)
         r["days_left"] = days_left(r)
         r["tx_count"] = counts.get(r["user_id"], 0)
         r["cost_usd"] = costs.get(r["user_id"], 0.0) or 0.0
+        r["plan_code"] = last_plan.get(r["user_id"], "")
+        r["paid_count"] = paid.get(r["user_id"], 0)
+        # Muddat: obunachi uchun obuna tugashi, sinovda esa sinov tugashi.
+        # Egada muddat yo'q — uning sinov sanasini ko'rsatish chalg'itadi.
+        r["expires_at"] = (
+            None if r["state"] == "ega"
+            else r.get("subscribed_until") or r.get("trial_ends_at")
+        )
+        r["idle_days"] = _days_since(r.get("last_seen_at"))
 
     if state:
         rows = [r for r in rows if r["state"] == state]
+    if plan:
+        rows = [r for r in rows if r["plan_code"] == plan]
+    if activity:
+        limit_days = {"bugun": 0, "hafta": 7, "oy": 30}.get(activity)
+        if limit_days is not None:
+            rows = [r for r in rows
+                    if r["idle_days"] is not None and r["idle_days"] <= limit_days]
 
     keys = {
         "yangi": lambda r: (r["created_at"] or ""),
@@ -333,6 +407,18 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
     rows.sort(key=keys.get(sort, keys["yangi"]), reverse=True)
 
     return rows[offset:offset + limit], len(rows)
+
+
+def activity_counts(owner_ids: set[int] | None = None) -> dict:
+    """«Bugun faol — N · Oxirgi 7 kunda — N» qatori uchun."""
+    with conn() as c:
+        seen = [r[0] for r in c.execute("SELECT last_seen_at FROM users").fetchall()]
+    days = [d for d in (_days_since(s) for s in seen) if d is not None]
+    return {
+        "today": sum(1 for d in days if d == 0),
+        "week": sum(1 for d in days if d <= 7),
+        "month": sum(1 for d in days if d <= 30),
+    }
 
 
 def user_transactions(user_id: int, limit: int = 50) -> list[dict]:
@@ -386,9 +472,26 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
     return u
 
 
-def all_user_ids(state: str = "", owner_ids: set[int] | None = None) -> list[int]:
+def all_user_ids(state: str = "", owner_ids: set[int] | None = None,
+                 lang: str = "") -> list[int]:
+    """Ommaviy xabar uchun qabul qiluvchilar.
+
+    `lang` berilsa faqat o'sha tilni tanlagan odamlar qoladi — xabar
+    o'zbekcha yozilgan bo'lsa ruschani tanlaganga yuborishdan ma'no yo'q.
+    """
     rows, _ = list_users(state=state, owner_ids=owner_ids, limit=10**9)
+    if lang:
+        rows = [r for r in rows if (r.get("lang") or "uz") == lang]
     return [r["user_id"] for r in rows]
+
+
+def lang_counts(owner_ids: set[int] | None = None) -> dict[str, int]:
+    rows, _ = list_users(owner_ids=owner_ids, limit=10**9)
+    counts: dict[str, int] = {}
+    for r in rows:
+        key = r.get("lang") or "uz"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def grant_subscription(user_id: int, days: int) -> datetime:
@@ -477,7 +580,29 @@ def list_requests(status: str = "", limit: int = 100) -> list:
             "WHEN 'kutilmoqda' THEN 1 ELSE 2 END, r.id DESC LIMIT ?")
     params.append(limit)
     with conn() as c:
-        return [dict(r) for r in c.execute(sql, params).fetchall()]
+        rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+        # Chekni ko'rayotgan admin uchun kontekst: bu odam ilgari to'laganmi
+        # va botdan qanchalik foydalanadi. Ikkalasi ham qaror uchun muhim.
+        counts = dict(c.execute(
+            "SELECT user_id, COUNT(*) FROM transactions GROUP BY user_id").fetchall())
+        paid = dict(c.execute(
+            "SELECT user_id, COUNT(*) FROM payments GROUP BY user_id").fetchall())
+        rejected = dict(c.execute(
+            "SELECT user_id, COUNT(*) FROM subscription_requests "
+            "WHERE status = 'rad etildi' GROUP BY user_id").fetchall())
+        first_seen = dict(c.execute(
+            "SELECT user_id, created_at FROM users").fetchall())
+
+    for r in rows:
+        uid = r["user_id"]
+        r["tx_count"] = counts.get(uid, 0)
+        r["paid_count"] = paid.get(uid, 0)
+        r["rejected_count"] = rejected.get(uid, 0)
+        joined = _parse(first_seen.get(uid))
+        r["member_days"] = (
+            max(0, (datetime.now(settings.TZ) - joined).days) if joined else None
+        )
+    return rows
 
 
 def pending_count() -> int:
@@ -526,6 +651,156 @@ def add_payment(user_id: int, plan_code: str, amount: int, days: int,
 # --------------------------------------------------------------------------- #
 # Statistika
 # --------------------------------------------------------------------------- #
+
+def _bucket_keys(scale: str, count: int) -> list[str]:
+    """Oxirgi `count` ta oraliqning kaliti — yangisi oxirida."""
+    now = datetime.now(settings.TZ)
+    keys: list[str] = []
+    if scale == "kunlik":
+        for i in range(count - 1, -1, -1):
+            keys.append((now - timedelta(days=i)).date().isoformat())
+    elif scale == "yillik":
+        for i in range(count - 1, -1, -1):
+            keys.append(str(now.year - i))
+    else:  # oylik
+        year, month = now.year, now.month
+        for _ in range(count):
+            keys.append(f"{year:04d}-{month:02d}")
+            month -= 1
+            if month == 0:
+                month, year = 12, year - 1
+        keys.reverse()
+    return keys
+
+
+def _bucket_of(raw, scale: str) -> str | None:
+    text = str(raw or "")
+    if len(text) < 10:
+        return None
+    if scale == "kunlik":
+        return text[:10]
+    if scale == "yillik":
+        return text[:4]
+    return text[:7]
+
+
+def revenue_series(scale: str = "oylik") -> dict:
+    """Daromad: joriy va oldingi davr yonma-yon.
+
+    Dizayndagi ustunlar juftligi shundan chiqadi — o'sish yoki
+    pasayishni ko'z bilan solishtirish uchun.
+    """
+    count = {"kunlik": 14, "oylik": 12, "yillik": 4}.get(scale, 12)
+    keys = _bucket_keys(scale, count * 2)
+    with conn() as c:
+        rows = c.execute("SELECT created_at, amount FROM payments").fetchall()
+
+    sums: dict[str, int] = {}
+    for created_at, amount in rows:
+        key = _bucket_of(created_at, scale)
+        if key:
+            sums[key] = sums.get(key, 0) + int(amount or 0)
+
+    current = keys[count:]
+    previous = keys[:count]
+    labels_uz = ["yan", "fev", "mar", "apr", "may", "iyn",
+                 "iyl", "avg", "sen", "okt", "noy", "dek"]
+
+    def label(key: str) -> str:
+        if scale == "kunlik":
+            return key[8:10] + "." + key[5:7]
+        if scale == "yillik":
+            return key
+        return labels_uz[int(key[5:7]) - 1]
+
+    return {
+        "scale": scale,
+        "items": [
+            {"key": cur, "label": label(cur),
+             "now": sums.get(cur, 0), "prev": sums.get(prev, 0)}
+            for cur, prev in zip(current, previous)
+        ],
+        "nowTotal": sum(sums.get(k, 0) for k in current),
+        "prevTotal": sum(sums.get(k, 0) for k in previous),
+    }
+
+
+def stats(owner_ids: set[int]) -> dict:
+    """«Statistika» ekrani uchun ko'rsatkichlar."""
+    now = datetime.now(settings.TZ)
+    month_start = today().replace(day=1).isoformat()
+    with conn() as c:
+        users = [dict(r) for r in c.execute("SELECT * FROM users").fetchall()]
+        new_30 = int(c.execute(
+            "SELECT COUNT(*) FROM users WHERE created_at >= ?",
+            ((now - timedelta(days=30)).date().isoformat(),)).fetchone()[0])
+        pay_rows = c.execute(
+            "SELECT plan_code, amount, user_id, created_at FROM payments").fetchall()
+        cost_month = float(c.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
+            (month_start,)).fetchone()[0])
+
+    states = {"ega": 0, "obunachi": 0, "sinov": 0, "tugagan": 0, "bloklangan": 0}
+    for u in users:
+        states[access_state(u, owner_ids)] += 1
+
+    payments = [dict(zip(("plan_code", "amount", "user_id", "created_at"), r))
+                for r in pay_rows]
+    payer_ids = {p["user_id"] for p in payments}
+    avg_check = round(sum(p["amount"] for p in payments) / len(payments)) if payments else 0
+
+    # Sinovni boshlaganlardan nechtasi to'lovga o'tgan.
+    trial_users = [u for u in users if u["user_id"] not in owner_ids]
+    converted = sum(1 for u in trial_users if u["user_id"] in payer_ids)
+    conversion = round(100 * converted / len(trial_users)) if trial_users else 0
+
+    # Ketganlar: obunasi yoki sinovi tugagan va 30 kundan beri kirmagan.
+    churned = 0
+    for u in trial_users:
+        if access_state(u, owner_ids) != "tugagan":
+            continue
+        idle = _days_since(u["last_seen_at"])
+        if idle is not None and idle >= 30:
+            churned += 1
+    base = max(1, states["obunachi"] + states["tugagan"])
+
+    by_plan: dict[str, int] = {}
+    for p in payments:
+        by_plan[p["plan_code"]] = by_plan.get(p["plan_code"], 0) + 1
+    plan_total = max(1, sum(by_plan.values()))
+
+    budget = settings.ai_monthly_budget_usd()
+    return {
+        "newUsers30": new_30,
+        "churned": churned,
+        "churnPercent": round(100 * churned / base, 1),
+        "conversion": conversion,
+        "convertedCount": converted,
+        "trialTotal": len(trial_users),
+        "avgCheck": avg_check,
+        "plans": [
+            {"code": p["code"], "label": p["label"], "price": p["price"],
+             "count": by_plan.get(p["code"], 0),
+             "percent": round(100 * by_plan.get(p["code"], 0) / plan_total)}
+            for p in _plan_list()
+        ],
+        "ai": {
+            "spentUsd": round(cost_month, 4),
+            "spentSom": round(cost_month * settings.USD_RATE),
+            "budgetUsd": budget,
+            "budgetSom": round(budget * settings.USD_RATE),
+            "percent": round(100 * cost_month / budget) if budget else 0,
+            "daysLeft": (
+                (now.replace(day=28) + timedelta(days=4)).replace(day=1) - now
+            ).days,
+        },
+    }
+
+
+def _plan_list() -> list[dict]:
+    import plans
+    return plans.all_plans()
+
 
 def overview(owner_ids: set[int]) -> dict:
     now = datetime.now(settings.TZ)

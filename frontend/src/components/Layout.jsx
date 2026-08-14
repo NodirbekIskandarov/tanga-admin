@@ -1,28 +1,44 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useLogoutMutation, useSessionQuery } from "../store/api";
 import { pushToast } from "../store/uiSlice";
+import { useTheme } from "../lib/theme";
+import { dt } from "../lib/format";
 
+// Menyu tartibi va nomlari dizayn bo'yicha. «Umumiy holat» — kirish
+// nuqtasi: hamma bo'lim bo'yicha qisqacha javob shu yerda.
 const NAV = [
-  { to: "/", icon: "📊", label: "Umumiy holat", end: true },
-  { to: "/foydalanuvchilar", icon: "👥", label: "Foydalanuvchilar" },
-  { to: "/sorovlar", icon: "💎", label: "Obuna so'rovlari", badge: "pending" },
-  { to: "/moliya", icon: "💰", label: "Moliya va sarf" },
-  { group: "Amallar" },
-  { to: "/xabar", icon: "📣", label: "Ommaviy xabar" },
-  { to: "/jurnal", icon: "📋", label: "Amallar jurnali" },
-  { to: "/parol", icon: "🔑", label: "Parol va hisoblar" },
+  { to: "/", label: "Umumiy holat", end: true },
+  { to: "/tolovlar", label: "To'lovlar", badge: "pending" },
+  { to: "/foydalanuvchilar", label: "Foydalanuvchilar" },
+  { to: "/xabar", label: "Xabarlar" },
+  { to: "/statistika", label: "Statistika" },
+  { to: "/jurnal", label: "Jurnal" },
+  { to: "/sozlamalar", label: "Sozlamalar" },
 ];
 
 const TITLES = {
   "/": "Umumiy holat",
+  "/tolovlar": "To'lovlar",
   "/foydalanuvchilar": "Foydalanuvchilar",
-  "/sorovlar": "Obuna so'rovlari",
-  "/moliya": "Moliya va AI sarfi",
   "/xabar": "Ommaviy xabar",
-  "/jurnal": "Amallar jurnali",
+  "/statistika": "Statistika",
+  "/jurnal": "Jurnal",
+  "/sozlamalar": "Sozlamalar",
+  "/moliya": "Moliya va AI sarfi",
   "/parol": "Parol va hisoblar",
 };
+
+/** Sarlavha yonidagi soat — sahifa ochiq turganini ko'rsatib turadi. */
+function Clock() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="clock">{dt(now)}</span>;
+}
 
 export default function Layout() {
   const { pathname } = useLocation();
@@ -30,10 +46,15 @@ export default function Layout() {
   const admin = useSelector((s) => s.auth.admin);
   const { data: session } = useSessionQuery();
   const [logout] = useLogoutMutation();
+  const [theme, toggleTheme] = useTheme();
 
   const title =
     TITLES[pathname] ||
     (pathname.startsWith("/foydalanuvchilar/") ? "Foydalanuvchi" : "Admin");
+
+  useEffect(() => {
+    document.title = `${title} · Tanga admin`;
+  }, [title]);
 
   async function onLogout() {
     await logout();
@@ -44,50 +65,49 @@ export default function Layout() {
     <div className="shell">
       <aside className="side">
         <div className="brand">
-          <div className="logo">
-            <img className="mark" src="/icon-32.png" alt="" width="20" height="20" /> Tanga
-          </div>
-          <div className="sub">Boshqaruv paneli</div>
+          <img className="mark" src="/icon-32.png" alt="" width="24" height="24" />
+          <span className="logo">tanga</span>
+          <span className="sub">admin</span>
         </div>
 
         <nav>
-          {NAV.map((item, i) =>
-            item.group ? (
-              <div className="group" key={`g${i}`}>
-                {item.group}
-              </div>
-            ) : (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) => (isActive ? "on" : "")}
-              >
-                <span className="ic">{item.icon}</span>
-                {item.label}
-                {item.badge && session?.[item.badge] > 0 && (
-                  <span className="badge">{session[item.badge]}</span>
-                )}
-              </NavLink>
-            )
-          )}
+          {NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => (isActive ? "on" : "")}
+            >
+              <span>{item.label}</span>
+              {item.badge && session?.[item.badge] > 0 && (
+                <span className="badge">{session[item.badge]}</span>
+              )}
+            </NavLink>
+          ))}
         </nav>
 
         <div className="side-foot">
-          <span>
-            <b>{admin}</b>
-          </span>
-          <button className="btn sm" onClick={onLogout}>
-            Chiqish
+          <button className="btn sm" onClick={toggleTheme}>
+            {theme === "light" ? "Qorong'i rejim" : "Yorug' rejim"}
           </button>
+          <div className="who">
+            <div>
+              <b>{admin}</b>
+              <small>admin</small>
+            </div>
+            <button className="btn ghost sm" onClick={onLogout}>
+              Chiqish
+            </button>
+          </div>
         </div>
       </aside>
 
       <main className="main">
-        <div className="topbar">
-          <h1>{title}</h1>
-        </div>
         <div className="content">
+          <div className="topbar">
+            <h1>{title}</h1>
+            <Clock />
+          </div>
           <Outlet />
         </div>
       </main>

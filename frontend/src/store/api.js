@@ -29,7 +29,10 @@ const baseQueryWithAuth = async (args, api, extra) => {
 export const api = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithAuth,
-  tagTypes: ["Session", "Users", "User", "Requests", "Dashboard", "Finance", "Log"],
+  tagTypes: [
+    "Session", "Users", "User", "Requests", "Dashboard", "Finance", "Log",
+    "Settings",
+  ],
   endpoints: (build) => ({
     // ---- Sessiya ----
     session: build.query({
@@ -57,9 +60,10 @@ export const api = createApi({
 
     // ---- Foydalanuvchilar ----
     users: build.query({
-      query: ({ q = "", holat = "", tartib = "yangi", sahifa = 1 }) => ({
+      query: ({ q = "", holat = "", tarif = "", faollik = "",
+                tartib = "yangi", sahifa = 1 }) => ({
         url: "/users",
-        params: { q, holat, tartib, sahifa },
+        params: { q, holat, tarif, faollik, tartib, sahifa },
       }),
       providesTags: ["Users"],
     }),
@@ -102,10 +106,21 @@ export const api = createApi({
       invalidatesTags: ["Requests", "Session", "Dashboard", "Users", "Finance"],
     }),
 
-    // ---- Moliya ----
+    // ---- Moliya va statistika ----
     finance: build.query({
       query: (kun = 30) => ({ url: "/finance", params: { kun } }),
       providesTags: ["Finance"],
+    }),
+    stats: build.query({
+      query: (davr = "oylik") => ({ url: "/stats", params: { davr } }),
+      providesTags: ["Finance"],
+    }),
+
+    // ---- Sozlamalar ----
+    settings: build.query({ query: () => "/settings", providesTags: ["Settings"] }),
+    saveSettings: build.mutation({
+      query: (body) => ({ url: "/settings", method: "POST", body }),
+      invalidatesTags: ["Settings", "Users", "Requests", "Finance"],
     }),
 
     // ---- Ommaviy xabar ----
@@ -136,6 +151,9 @@ export const {
   useRequestsQuery,
   useDecideRequestMutation,
   useFinanceQuery,
+  useStatsQuery,
+  useSettingsQuery,
+  useSaveSettingsMutation,
   useBroadcastInfoQuery,
   useSendBroadcastMutation,
   useLogQuery,

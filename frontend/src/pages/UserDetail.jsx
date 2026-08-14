@@ -7,7 +7,7 @@ import {
 } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import {
-  Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
+  Av, Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
 } from "../components/common";
 import { day, som, usd } from "../lib/format";
 
@@ -20,7 +20,7 @@ export default function UserDetail() {
   const [loadNotes, { data: notesData, isFetching: notesLoading }] =
     useLazyUserTransactionsQuery();
   const notes = notesData?.items || null;
-  const { data, isLoading, error, refetch, fulfilledTimeStamp } =
+  const { data, isLoading, isFetching, error, refetch, fulfilledTimeStamp } =
     useUserQuery(id, { pollingInterval: 25000 });
   const [act, { isLoading: acting }] = useUserActionMutation();
   const [ask, confirmDialog] = useConfirm();
@@ -51,13 +51,23 @@ export default function UserDetail() {
     <>
       {confirmDialog}
 
-      <div className="inline" style={{ marginBottom: 14 }}>
+      <div className="inline">
         <Link className="btn" to="/foydalanuvchilar">
           ← Ro'yxatga
         </Link>
-        <h2 style={{ margin: 0, fontSize: 19 }}>{u.first_name || "Nomsiz"}</h2>
+        <span className="who">
+          <Av name={u.first_name || u.username || "?"} seed={u.user_id} size="md" />
+          <span>
+            <span className="nm" style={{ fontSize: 16, fontWeight: 500 }}>
+              {u.first_name || "Nomsiz"}
+            </span>
+            <span className="meta">
+              {u.username ? `@${u.username} · ` : ""}ID {u.user_id}
+            </span>
+          </span>
+        </span>
         <span className="spacer" />
-        <Fresh at={fulfilledTimeStamp} />
+        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
       </div>
 
       <div className="kpis">
@@ -66,21 +76,16 @@ export default function UserDetail() {
           value={<Tag kind={u.state}>{u.state}</Tag>}
           sub={u.days_left != null ? `${u.days_left} kun qoldi` : "muddat yo'q"}
         />
-        <Kpi
-          label="Telegram ID"
-          value={<span style={{ fontFamily: "var(--mono)", fontSize: 20 }}>{u.user_id}</span>}
-          sub={u.username ? `@${u.username}` : "username yo'q"}
-        />
         <Kpi label="Yozuvlari" value={u.tx_count} sub={`oxirgi faollik ${day(u.last_seen_at)}`} />
         <Kpi label="AI xarajati" value={usd(u.cost_usd)} sub={`ro'yxatdan ${day(u.created_at)}`} />
-        <Kpi label="To'lagan" value={som(u.paid_total)} sub="so'm, jami" tone="good" />
+        <Kpi label="To'lagan" value={som(u.paid_total)} sub="so'm, jami" tone="brass" />
       </div>
 
       <div className="grid3">
-        <div>
+        <div className="stack">
           <Card title="Obunani boshqarish">
             <div className="pad">
-              <div className="row">
+              <div className="row" style={{ alignItems: "flex-end" }}>
                 <label className="fld grow" style={{ margin: 0 }}>
                   <span>Tarif</span>
                   <select value={chosenPlan} onChange={(e) => setPlanCode(e.target.value)}>
@@ -109,9 +114,9 @@ export default function UserDetail() {
                 etiladi va foydalanuvchiga Telegram orqali xabar boradi.
               </p>
 
-              <hr style={{ border: "none", borderTop: "1px solid var(--line)", margin: "16px 0" }} />
+              <hr />
 
-              <div className="row">
+              <div className="row" style={{ alignItems: "flex-end" }}>
                 <label className="fld" style={{ margin: 0, width: 130 }}>
                   <span>Sinov, kun</span>
                   <input
@@ -261,7 +266,7 @@ export default function UserDetail() {
 
         </div>
 
-        <div>
+        <div className="stack">
           <Card title="AI sarfi">
             <div className="tbl-wrap">
               <table>

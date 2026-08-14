@@ -4,9 +4,11 @@ import { createSlice, nanoid } from "@reduxjs/toolkit";
 // Filtrlarni Redux'da saqlash sahifalar orasida yurganda tanlovni
 // yo'qotmaslik uchun kerak.
 const initialState = {
-  userFilters: { q: "", holat: "", tartib: "yangi", sahifa: 1 },
+  userFilters: { q: "", holat: "", tarif: "", faollik: "", tartib: "yangi", sahifa: 1 },
   requestFilter: "ochiq",
   financeDays: 30,
+  statsRange: "oylik",
+  broadcastLang: "",
   logPage: 1,
   toasts: [],
 };
@@ -29,6 +31,12 @@ const uiSlice = createSlice({
     setFinanceDays(state, { payload }) {
       state.financeDays = payload;
     },
+    setStatsRange(state, { payload }) {
+      state.statsRange = payload;
+    },
+    setBroadcastLang(state, { payload }) {
+      state.broadcastLang = payload;
+    },
     setLogPage(state, { payload }) {
       state.logPage = payload;
     },
@@ -50,6 +58,8 @@ export const {
   setUserFilters,
   setRequestFilter,
   setFinanceDays,
+  setStatsRange,
+  setBroadcastLang,
   setLogPage,
   pushToast,
   dismissToast,

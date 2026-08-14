@@ -1,0 +1,158 @@
+/* ===================================================================== *
+ * Tanga admin — dizayn tokenlari
+ *
+ * Manba: Claude Design loyihasi «Tanga admin.dc.html».
+ *
+ * Shriftlar ATAYLAB o'zimizda joylashtirilgan. Panelning CSP'si
+ * `font-src 'self'` — Google Fonts'ga ruxsat berish uchun uni
+ * bo'shatish kerak bo'lardi. Buning o'rniga woff2 fayllarini olib
+ * qo'ydik: tashqi so'rov yo'q, admin panelga kimlar kirgani Google'ga
+ * ma'lum bo'lmaydi va sahifa tezroq ochiladi.
+ *
+ * Ikkala qalinlik (400 va 500) bitta fayldan chiqadi — bular variable
+ * shriftlar, shuning uchun `font-weight: 400 500` diapazon sifatida
+ * e'lon qilinadi.
+ * ===================================================================== */
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+    U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+    U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --------------------------------------------------------------------- *
+ * Palitra. Yorug' — standart; qorong'i — tanlov bo'yicha.
+ *
+ * `--brass` tanga ikonkasining tilla rangidan olingan: panel va
+ * mahsulot bir xil rangda gapiradi.
+ * --------------------------------------------------------------------- */
+
+:root,
+[data-theme="light"] {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --sunken: #f6f8fa;
+  --border: #dde3e9;
+  --border-strong: #c3ccd6;
+  --text: #16202b;
+  --text-2: #5a6774;
+  --text-3: #8a97a4;
+  --brass: #c8891e;
+  --brass-bg: #fdf3e0;
+  --success: #17795c;
+  --success-bg: #e3f3ec;
+  --danger: #b23a2b;
+  --danger-bg: #fbece9;
+  --warn: #9a6a08;
+  --warn-bg: #fcf2dc;
+  --overlay: rgba(10, 14, 18, 0.4);
+
+  --ui: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+}
+
+[data-theme="dark"] {
+  --bg: #101519;
+  --surface: #171e24;
+  --sunken: #0c1114;
+  --border: #26303a;
+  --border-strong: #35424e;
+  --text: #e8edf2;
+  --text-2: #9ba9b6;
+  --text-3: #6b7986;
+  --brass: #e0a63c;
+  --brass-bg: #33270f;
+  --success: #4cbf95;
+  --success-bg: #10291f;
+  --danger: #e8705e;
+  --danger-bg: #2e1512;
+  --warn: #d9a23a;
+  --warn-bg: #2e2410;
+  --overlay: rgba(10, 14, 18, 0.62);
+}
+
+/* Space Grotesk va JetBrains Mono da kirill yo'q. Foydalanuvchi
+   ismlari kirillda kelishi mumkin — o'shanda IBM Plex (o'rnatilgan
+   bo'lsa) yoki tizim shrifti ishlaydi. Shu sabab zaxira ro'yxatda. */
+[data-script="cyrillic"] {
+  --ui: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* --------------------------------------------------------------------- *
+ * Asos
+ * --------------------------------------------------------------------- */
+
+* { box-sizing: border-box; }
+
+html, body, #root { margin: 0; padding: 0; }
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--brass); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus { outline: none; }
+:focus-visible { box-shadow: 0 0 0 3px rgba(200, 137, 30, 0.25); }
+::placeholder { color: var(--text-3); }
+
+/* Sonlar ustma-ust tursin — jadvalda ko'z bilan solishtirish oson. */
+.mono, .num, [data-mono] {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

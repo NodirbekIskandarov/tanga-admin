@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { initials, tone } from "../lib/person";
 
 export function Loading({ label = "Yuklanmoqda…" }) {
   return (
@@ -16,14 +17,11 @@ export function ErrorBox({ error, onRetry }) {
     (error?.status ? `Xatolik ${error.status}` : "Noma'lum xatolik");
   return (
     <div className="note bad">
-      {detail}
+      <span className="grow">{detail}</span>
       {onRetry && (
-        <>
-          {" "}
-          <button className="btn sm" onClick={onRetry} style={{ marginLeft: 8 }}>
-            Qayta urinish
-          </button>
-        </>
+        <button className="btn sm" onClick={onRetry}>
+          Qayta urinish
+        </button>
       )}
     </div>
   );
@@ -62,36 +60,116 @@ export function Tag({ children, kind }) {
   return <span className={`tag ${kind || ""}`}>{children}</span>;
 }
 
-export function Empty({ children = "Ma'lumot yo'q.", colSpan }) {
+/** Bosh harflardan iborat avatar. Rang ID bo'yicha barqaror. */
+export function Av({ name, seed, size = "" }) {
+  return (
+    <span className={`av ${tone(seed)} ${size}`} aria-hidden="true">
+      {initials(name)}
+    </span>
+  );
+}
+
+/** Ism + username/ID juftligi — jadval va kartada bir xil ko'rinsin. */
+export function Who({ name, meta, seed, size = "" }) {
+  return (
+    <span className="who">
+      <Av name={name} seed={seed} size={size} />
+      <span style={{ minWidth: 0 }}>
+        <span className="nm">{name}</span>
+        {meta && <span className="meta">{meta}</span>}
+      </span>
+    </span>
+  );
+}
+
+/** Segment tanlagich: bir nechta o'zaro istisno variant. */
+export function Seg({ options, value, onChange }) {
+  return (
+    <div className="seg" role="tablist">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          role="tab"
+          aria-selected={v === value}
+          className={v === value ? "on" : ""}
+          onClick={() => onChange(v)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Kbd({ children }) {
+  return <kbd className="kbd">{children}</kbd>;
+}
+
+export function Empty({ title, children = "Ma'lumot yo'q.", colSpan }) {
+  const body = (
+    <>
+      {title && <b>{title}</b>}
+      <span>{children}</span>
+    </>
+  );
   if (colSpan) {
     return (
       <tr>
         <td colSpan={colSpan} className="empty">
-          {children}
+          {body}
         </td>
       </tr>
     );
   }
-  return <div className="empty">{children}</div>;
+  return <div className="empty">{body}</div>;
 }
 
 export function Pager({ page, pages, onChange, total }) {
   if (pages <= 1) return null;
   return (
     <div className="pager">
-      <span className="cnt">
+      <span className="mono">
         {page} / {pages} sahifa{total != null && ` · ${total} ta`}
       </span>
-      {page > 1 && (
-        <button className="btn sm" onClick={() => onChange(page - 1)}>
-          ← Oldingi
+      <div className="row">
+        <button className="btn sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+          Oldingi
         </button>
-      )}
-      {page < pages && (
-        <button className="btn sm" onClick={() => onChange(page + 1)}>
-          Keyingi →
+        <button className="btn sm" disabled={page >= pages} onClick={() => onChange(page + 1)}>
+          Keyingi
         </button>
-      )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Qoplama oyna.
+ *
+ * Esc bilan yopiladi va fon bosilganda ham — tasdiq so'raydigan oyna
+ * uchun bu «bekor qilish» degani, shuning uchun `onClose` doim
+ * xavfsiz tomonga olib boradi.
+ */
+export function Modal({ title, sub, onClose, children, width, z }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose?.();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="scrim"
+      style={z ? { zIndex: z } : undefined}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="modal" style={width ? { width } : undefined} onClick={(e) => e.stopPropagation()}>
+        {title && <h3>{title}</h3>}
+        {sub && <div className="sub">{sub}</div>}
+        {children}
+      </div>
     </div>
   );
 }
@@ -115,35 +193,20 @@ export function useConfirm() {
   }
 
   const dialog = state ? (
-    <div
-      className="lightbox"
-      style={{ cursor: "default" }}
-      onClick={() => finish(false)}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="card"
-        style={{ maxWidth: 460, margin: 0 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="pad">
-          <p style={{ margin: "0 0 18px", fontSize: 15 }}>{state.message}</p>
-          <div className="inline" style={{ justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => finish(false)}>
-              Bekor
-            </button>
-            <button
-              className={`btn ${state.danger ? "dan" : "pri"}`}
-              onClick={() => finish(true)}
-              autoFocus
-            >
-              Ha, davom etaman
-            </button>
-          </div>
-        </div>
+    <Modal title={state.message} onClose={() => finish(false)} z={40}>
+      <div className="acts">
+        <button className="btn" onClick={() => finish(false)}>
+          Bekor qilish
+        </button>
+        <button
+          className={`btn ${state.danger ? "dan" : "pri"}`}
+          onClick={() => finish(true)}
+          autoFocus
+        >
+          Ha, davom etaman
+        </button>
       </div>
-    </div>
+    </Modal>
   ) : null;
 
   return [ask, dialog];
@@ -164,6 +227,20 @@ export function Lightbox({ src, onClose }) {
   );
 }
 
+/** Nomi + qiymati bo'lgan kichik kataklar. */
+export function Facts({ children }) {
+  return <div className="facts">{children}</div>;
+}
+
+export function Fact({ label, children, mono = true }) {
+  return (
+    <div className="fact">
+      <span>{label}</span>
+      <span className={mono ? "mono" : ""}>{children}</span>
+    </div>
+  );
+}
+
 export function Bars({ rows, max }) {
   const top = max ?? Math.max(...rows.map((r) => r.value), 1);
   return (
@@ -176,7 +253,7 @@ export function Bars({ rows, max }) {
               className="bar-fill"
               style={{
                 width: `${Math.min(100, (100 * r.value) / top)}%`,
-                background: r.color || "var(--brand)",
+                background: r.color || "var(--brass)",
               }}
             />
           </span>

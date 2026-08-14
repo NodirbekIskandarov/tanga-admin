@@ -69,6 +69,53 @@ USD_RATE = float(os.getenv("USD_RATE", "12600"))
 
 APP_NAME = os.getenv("APP_NAME", "Tanga — Admin")
 
+# --------------------------------------------------------------------------- #
+# «Sozlamalar» ekranida o'zgartiriladigan qiymatlar
+#
+# Boshlang'ich qiymat .env dan olinadi. Admin ularni panelda o'zgartirsa,
+# `app_settings` jadvaliga yoziladi va bot ham o'sha jadvalni o'qiydi —
+# narx va rekvizit ikki joyda alohida turmasin.
+# --------------------------------------------------------------------------- #
+
+DEFAULT_TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
+DEFAULT_MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "50"))
+DEFAULT_CARD_NUMBER = os.getenv("CARD_NUMBER", "").strip()
+DEFAULT_CARD_HOLDER = os.getenv("CARD_HOLDER", "").strip()
+
+
+def _stored() -> dict:
+    # Kech import: store settings'ni import qiladi — modul yuklanish
+    # paytida teskari import aylanma bog'liqlik hosil qilardi.
+    try:
+        import store
+        return store.settings_all()
+    except Exception:
+        return {}
+
+
+def trial_days() -> int:
+    try:
+        value = int(str(_stored().get("trial_days", "")).strip())
+        return value if 1 <= value <= 365 else DEFAULT_TRIAL_DAYS
+    except (TypeError, ValueError):
+        return DEFAULT_TRIAL_DAYS
+
+
+def ai_monthly_budget_usd() -> float:
+    try:
+        value = float(str(_stored().get("ai_monthly_budget_usd", "")).strip())
+        return value if value > 0 else DEFAULT_MONTHLY_BUDGET_USD
+    except (TypeError, ValueError):
+        return DEFAULT_MONTHLY_BUDGET_USD
+
+
+def card_number() -> str:
+    return str(_stored().get("card_number", "") or DEFAULT_CARD_NUMBER)
+
+
+def card_holder() -> str:
+    return str(_stored().get("card_holder", "") or DEFAULT_CARD_HOLDER)
+
 
 def missing() -> list[str]:
     problems = []

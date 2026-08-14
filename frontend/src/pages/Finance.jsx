@@ -3,15 +3,22 @@ import { useDispatch, useSelector } from "react-redux";
 import { useFinanceQuery } from "../store/api";
 import { setFinanceDays } from "../store/uiSlice";
 import { LineChart, Legend } from "../components/Chart";
-import { Card, Empty, ErrorBox, Kpi, Loading } from "../components/common";
+import Fresh from "../components/Fresh";
+import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
 import { dt, som, usd } from "../lib/format";
 
-const RANGES = [7, 30, 90, 365];
+const RANGES = [
+  [7, "7 kun"],
+  [30, "30 kun"],
+  [90, "90 kun"],
+  [365, "1 yil"],
+];
 
 export default function Finance() {
   const dispatch = useDispatch();
   const days = useSelector((s) => s.ui.financeDays);
-  const { data, isFetching, error, refetch } = useFinanceQuery(days);
+  const { data, isFetching, error, refetch, fulfilledTimeStamp } =
+    useFinanceQuery(days);
 
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
   if (!data) return <Loading />;
@@ -24,38 +31,28 @@ export default function Finance() {
 
   return (
     <>
-      <Card>
-        <div className="pad">
-          <div className="row">
-            <span className="muted" style={{ fontSize: 13 }}>
-              Davr:
-            </span>
-            {RANGES.map((d) => (
-              <button
-                key={d}
-                className={`btn sm ${days === d ? "pri" : ""}`}
-                onClick={() => dispatch(setFinanceDays(d))}
-              >
-                {d} kun
-              </button>
-            ))}
-            <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
-              Kurs: 1 $ = {som(data.usd_rate)} so'm
-            </span>
-            <a className="btn" href="/api/export/payments.csv">
-              ⬇ To'lovlar CSV
-            </a>
-          </div>
-        </div>
-      </Card>
+      <div className="row">
+        <Seg
+          options={RANGES}
+          value={days}
+          onChange={(d) => dispatch(setFinanceDays(d))}
+        />
+        <span className="spacer" />
+        <span className="muted" style={{ fontSize: 13 }}>
+          Kurs: 1 $ = <span className="mono">{som(data.usd_rate)}</span> so'm
+        </span>
+        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
+        <a className="btn" href="/api/export/payments.csv">
+          To'lovlar CSV
+        </a>
+      </div>
 
-      <div className="kpis">
-        <Kpi label="Shu oy daromad" value={som(ov.revenue_month)} sub="so'm" tone="good" />
+      <div className="kpis three">
+        <Kpi label="Shu oy daromad" value={som(ov.revenue_month)} sub="so'm" tone="brass" />
         <Kpi
           label="Shu oy AI sarfi"
           value={som(data.cost_month_som)}
           sub={usd(ov.cost_month)}
-          tone="bad"
         />
         <Kpi
           label="Sof foyda"
@@ -77,13 +74,15 @@ export default function Finance() {
       </div>
 
       <Card title="Kunlik AI xarajati">
-        <LineChart
-          labels={data.series.labels}
-          data={data.series.cost}
-          color="#A0221C"
-          format={(v) => "$" + v.toFixed(2)}
-        />
-        <Legend items={[{ label: "Xarajat, $", color: "#A0221C" }]} />
+        <div className="pad">
+          <LineChart
+            labels={data.series.labels}
+            data={data.series.cost}
+            color="--danger"
+            format={(v) => "$" + v.toFixed(2)}
+          />
+          <Legend items={[{ label: "Xarajat, $", color: "--danger" }]} />
+        </div>
       </Card>
 
       <div className="grid2">
@@ -237,7 +236,6 @@ export default function Finance() {
         </div>
       </Card>
 
-      {isFetching && <div className="hint">Yangilanmoqda…</div>}
     </>
   );
 }
