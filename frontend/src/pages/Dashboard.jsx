@@ -1,3 +1,4 @@
+import Fresh from "../components/Fresh";
 import { Link } from "react-router-dom";
 import { useDashboardQuery } from "../store/api";
 import { BarChart, Legend } from "../components/Chart";
@@ -13,7 +14,10 @@ const DIST = [
 ];
 
 export default function Dashboard() {
-  const { data, isLoading, error, refetch } = useDashboardQuery();
+  // Ma'lumot bot ishlaganda o'zgaradi — sahifani qo'lda yangilash
+  // shart bo'lmasin. 20 soniya: yuk kam, lekin ko'rinish tirik.
+  const { data, isLoading, error, refetch, fulfilledTimeStamp } =
+    useDashboardQuery(undefined, { pollingInterval: 20000 });
 
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
@@ -23,6 +27,10 @@ export default function Dashboard() {
 
   return (
     <>
+      <div className="page-head">
+        <Fresh at={fulfilledTimeStamp} />
+      </div>
+
       {ov.pending > 0 && (
         <div className="note warn">
           <b>{ov.pending} ta obuna so'rovi</b> javob kutmoqda —{" "}

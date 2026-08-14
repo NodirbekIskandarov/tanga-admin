@@ -1,3 +1,4 @@
+import Fresh from "../components/Fresh";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDispatch } from "react-redux";
@@ -15,10 +16,12 @@ export default function UserDetail() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   // Izohlar alohida so'raladi — shu bosish serverda jurnalga tushadi.
+  const [msgOpen, setMsgOpen] = useState(false);
   const [loadNotes, { data: notesData, isFetching: notesLoading }] =
     useLazyUserTransactionsQuery();
   const notes = notesData?.items || null;
-  const { data, isLoading, error, refetch } = useUserQuery(id);
+  const { data, isLoading, error, refetch, fulfilledTimeStamp } =
+    useUserQuery(id, { pollingInterval: 25000 });
   const [act, { isLoading: acting }] = useUserActionMutation();
   const [ask, confirmDialog] = useConfirm();
 
@@ -56,6 +59,8 @@ export default function UserDetail() {
           ← Ro'yxatga
         </Link>
         <h2 style={{ margin: 0, fontSize: 19 }}>{u.first_name || "Nomsiz"}</h2>
+        <span className="spacer" />
+        <Fresh at={fulfilledTimeStamp} />
       </div>
 
       <div className="kpis">
@@ -162,29 +167,6 @@ export default function UserDetail() {
             </div>
           </Card>
 
-          <Card title="Shaxsiy xabar yuborish">
-            <div className="pad">
-              <label className="fld">
-                <span>Matn (HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</span>
-                <textarea
-                  value={message}
-                  maxLength={3000}
-                  placeholder="Salom! ..."
-                  onChange={(e) => setMessage(e.target.value)}
-                />
-              </label>
-              <button
-                className="btn pri"
-                disabled={acting || !message.trim()}
-                onClick={() =>
-                  run({ amal: "xabar", matn: message }, { after: () => setMessage("") })
-                }
-              >
-                Telegramga yuborish
-              </button>
-            </div>
-          </Card>
-
           <Card
             title="Oxirgi yozuvlar"
             action={
@@ -235,6 +217,36 @@ export default function UserDetail() {
               </table>
             </div>
           </Card>
+          <Card
+            title="Shaxsiy xabar yuborish"
+            action={
+              <button className="btn sm" onClick={() => setMsgOpen((v) => !v)}>
+                {msgOpen ? "Yopish" : "Ochish"}
+              </button>
+            }
+          >
+            <div className="pad" hidden={!msgOpen}>
+              <label className="fld">
+                <span>Matn (HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</span>
+                <textarea
+                  value={message}
+                  maxLength={3000}
+                  placeholder="Salom! ..."
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+              </label>
+              <button
+                className="btn pri"
+                disabled={acting || !message.trim()}
+                onClick={() =>
+                  run({ amal: "xabar", matn: message }, { after: () => setMessage("") })
+                }
+              >
+                Telegramga yuborish
+              </button>
+            </div>
+          </Card>
+
         </div>
 
         <div>
@@ -263,6 +275,9 @@ export default function UserDetail() {
           </Card>
 
           <Card title="To'lovlar tarixi">
+            {u.payments.length === 0 ? (
+              <p className="pad muted" style={{ margin: 0 }}>Hali to'lov qilmagan.</p>
+            ) : (
             <div className="tbl-wrap">
               <table>
                 <thead>
@@ -273,7 +288,6 @@ export default function UserDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {u.payments.length === 0 && <Empty colSpan={3}>To'lov yo'q.</Empty>}
                   {u.payments.map((p) => (
                     <tr key={p.id}>
                       <td className="mono nowrap">{day(p.created_at)}</td>
@@ -284,9 +298,13 @@ export default function UserDetail() {
                 </tbody>
               </table>
             </div>
+            )}
           </Card>
 
           <Card title="So'rovlari">
+            {u.requests.length === 0 ? (
+              <p className="pad muted" style={{ margin: 0 }}>So'rov yubormagan.</p>
+            ) : (
             <div className="tbl-wrap">
               <table>
                 <thead>
@@ -297,7 +315,6 @@ export default function UserDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {u.requests.length === 0 && <Empty colSpan={3}>So'rov yo'q.</Empty>}
                   {u.requests.map((r) => (
                     <tr key={r.id}>
                       <td className="mono nowrap">{day(r.created_at)}</td>
@@ -310,6 +327,7 @@ export default function UserDetail() {
                 </tbody>
               </table>
             </div>
+            )}
           </Card>
 
           <Card title="Xavfli hudud" className="danger-zone">

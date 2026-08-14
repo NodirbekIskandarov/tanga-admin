@@ -1,3 +1,4 @@
+import Fresh from "../components/Fresh";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -180,7 +181,10 @@ function RequestCard({ req, onDecide, busy }) {
 export default function Requests() {
   const dispatch = useDispatch();
   const filter = useSelector((s) => s.ui.requestFilter);
-  const { data, isFetching, error, refetch } = useRequestsQuery(filter);
+  // Admin bu sahifada to'lov chekini KUTIB o'tiradi — shuning uchun
+  // eng tez yangilanish shu yerda.
+  const { data, isFetching, error, refetch, fulfilledTimeStamp } =
+    useRequestsQuery(filter, { pollingInterval: 12000 });
   const [decide, { isLoading: busy }] = useDecideRequestMutation();
   const [ask, confirmDialog] = useConfirm();
 
@@ -203,6 +207,10 @@ export default function Requests() {
   return (
     <>
       {confirmDialog}
+
+      <div className="page-head">
+        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
+      </div>
 
       <Card>
         <div className="pad">
