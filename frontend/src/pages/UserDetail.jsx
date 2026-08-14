@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import { useUserActionMutation, useUserQuery } from "../store/api";
+import {
+  useLazyUserTransactionsQuery, useUserActionMutation, useUserQuery,
+} from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import {
   Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
@@ -12,6 +14,10 @@ export default function UserDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  // Izohlar alohida so'raladi — shu bosish serverda jurnalga tushadi.
+  const [loadNotes, { data: notesData, isFetching: notesLoading }] =
+    useLazyUserTransactionsQuery();
+  const notes = notesData?.items || null;
   const { data, isLoading, error, refetch } = useUserQuery(id);
   const [act, { isLoading: acting }] = useUserActionMutation();
   const [ask, confirmDialog] = useConfirm();
@@ -24,6 +30,9 @@ export default function UserDetail() {
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
 
   const u = data.user;
+  // Izohlar ochilgan bo'lsa to'liq ro'yxatni ko'rsatamiz, aks holda
+  // kartaning izohsiz ro'yxatini.
+  const rows = notes || u.recent_tx;
   const plans = data.plans;
   const chosenPlan = planCode || plans[0]?.code;
 
@@ -176,7 +185,26 @@ export default function UserDetail() {
             </div>
           </Card>
 
-          <Card title="Oxirgi yozuvlar">
+          <Card
+            title="Oxirgi yozuvlar"
+            action={
+              notes ? null : (
+                <button
+                  className="btn sm"
+                  disabled={notesLoading}
+                  onClick={() => loadNotes(id)}
+                >
+                  {notesLoading ? "Yuklanmoqda…" : "Izohlarni ko'rish"}
+                </button>
+              )
+            }
+          >
+            {!notes && (
+              <p className="muted" style={{ margin: "0 0 10px", fontSize: "13px" }}>
+                Izohlar foydalanuvchining shaxsiy yozuvi. Ular ochilsa,
+                jurnalga yoziladi.
+              </p>
+            )}
             <div className="tbl-wrap">
               <table>
                 <thead>
@@ -189,13 +217,15 @@ export default function UserDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {u.recent_tx.length === 0 && <Empty colSpan={5}>Yozuv yo'q.</Empty>}
-                  {u.recent_tx.map((t) => (
+                  {rows.length === 0 && <Empty colSpan={5}>Yozuv yo'q.</Empty>}
+                  {rows.map((t) => (
                     <tr key={t.id}>
                       <td className="mono nowrap">{t.occurred_on}</td>
                       <td>{t.kind}</td>
                       <td>{t.category}</td>
-                      <td className="muted">{(t.note || "").slice(0, 48)}</td>
+                      <td className="muted">
+                        {notes ? (t.note || "").slice(0, 48) : "•••"}
+                      </td>
                       <td className="num">
                         {t.currency === "usd" ? usd(t.amount) : som(t.amount)}
                       </td>

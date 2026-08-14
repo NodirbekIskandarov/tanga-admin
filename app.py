@@ -296,6 +296,25 @@ def api_user(user_id: int, session: dict = Depends(current_admin)):
     return {"user": user, "plans": _plans()}
 
 
+@app.get("/api/users/{user_id}/transactions")
+def api_user_transactions(request: Request, user_id: int,
+                          session: dict = Depends(current_admin)):
+    """Foydalanuvchi yozuvlari IZOHLARI bilan.
+
+    Izohlar shaxsiy ma'lumot, shuning uchun ular foydalanuvchi kartasi
+    bilan birga yuklanmaydi — alohida so'raladi va har bir so'rov
+    jurnalga yoziladi: kim, qachon, kimning yozuvlarini ochgani
+    ko'rinib tursin.
+    """
+    if not store.get_user(user_id, OWNER_IDS):
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    rows = store.user_transactions(user_id)
+    store.log_action(session["u"], "yozuvlarni ko'rdi", target=str(user_id),
+                     details=f"{len(rows)} ta yozuv izohi bilan",
+                     ip=client_ip(request))
+    return {"items": rows}
+
+
 class UserAction(BaseModel):
     amal: str = Field(max_length=20)
     plan_code: str = Field("", max_length=10)

@@ -81,10 +81,30 @@ CREATE INDEX IF NOT EXISTS idx_pay_time ON payments(created_at DESC);
 """
 
 
+def _open(path: str, timeout: int):
+    """Bazaga ulanadi. Kalit sozlangan bo'lsa — SQLCipher orqali.
+
+    Bot loyihasidagi db._open bilan bir xil mantiq: ikkala jarayon ham
+    AYNAN bitta faylni ochadi, shuning uchun kalit ham bir xil bo'lishi
+    shart.
+    """
+    if not settings.DB_ENCRYPTION_KEY:
+        c = sqlite3.connect(path, timeout=timeout)
+        c.row_factory = sqlite3.Row
+        return c
+
+    from sqlcipher3 import dbapi2 as sqlcipher
+
+    c = sqlcipher.connect(path, timeout=timeout)
+    c.execute(f"PRAGMA key = {settings.db_key_pragma()}")
+    # Row sinfi modulga bog'liq — sqlite3.Row bu yerda ishlamaydi.
+    c.row_factory = sqlcipher.Row
+    return c
+
+
 @contextmanager
 def conn():
-    c = sqlite3.connect(settings.DB_PATH, timeout=15)
-    c.row_factory = sqlite3.Row
+    c = _open(settings.DB_PATH, timeout=15)
     c.execute("PRAGMA journal_mode = WAL")
     c.execute("PRAGMA busy_timeout = 15000")
     try:
@@ -315,6 +335,22 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
     return rows[offset:offset + limit], len(rows)
 
 
+def user_transactions(user_id: int, limit: int = 50) -> list[dict]:
+    """Izohlari bilan to'liq ro'yxat — ATAYLAB alohida funksiya.
+
+    Foydalanuvchining izohlari shaxsiy ma'lumot, shuning uchun ular
+    foydalanuvchi kartasi bilan birga avtomatik yuklanmaydi. Adminning
+    ularni ko'rishi ongli harakat bo'lishi va jurnalda iz qoldirishi
+    kerak — chaqiruvchi log_action() ni ham chaqiradi.
+    """
+    with conn() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT id, occurred_on, kind, amount, currency, category, note
+               FROM transactions WHERE user_id = ?
+               ORDER BY occurred_on DESC, id DESC LIMIT ?""",
+            (user_id, limit)).fetchall()]
+
+
 def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
     owner_ids = owner_ids or set()
     with conn() as c:
@@ -331,8 +367,13 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
                FROM usage_log WHERE user_id = ? GROUP BY operation ORDER BY cost DESC""",
             (user_id,)).fetchall()]
         u["cost_usd"] = round(sum(x["cost"] or 0 for x in u["usage"]), 4)
+        # Izoh (`note`) ATAYLAB olinmaydi. U foydalanuvchining shaxsiy
+        # yozuvi — «Aliga qarz», «shifokorga». Adminning kundalik ishi
+        # (obuna, to'lov, limit) uchun summa va kategoriya yetarli.
+        # Izohli to'liq ro'yxat alohida so'rov bilan olinadi va o'sha
+        # so'rov jurnalga yoziladi — user_transactions() ga qarang.
         u["recent_tx"] = [dict(r) for r in c.execute(
-            """SELECT id, occurred_on, kind, amount, currency, category, note
+            """SELECT id, occurred_on, kind, amount, currency, category
                FROM transactions WHERE user_id = ?
                ORDER BY occurred_on DESC, id DESC LIMIT 15""", (user_id,)).fetchall()]
         u["payments"] = [dict(r) for r in c.execute(

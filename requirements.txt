@@ -2,3 +2,6 @@ fastapi==0.121.2
 uvicorn[standard]==0.40.0
 httpx==0.28.1
 tzdata==2026.2
+
+# Bazani shifrlash (SQLCipher) — bot loyihasi bilan bir xil baza.
+sqlcipher3-binary>=0.5; platform_system == "Linux"

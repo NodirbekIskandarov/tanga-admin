@@ -30,6 +30,24 @@ _load_env()
 # Bot bilan BIR XIL baza fayli — admin panel o'sha ma'lumotni boshqaradi.
 DB_PATH = os.getenv("DB_PATH", "/opt/tanga/tanga.db")
 
+# Bazani shifrlash kaliti — bot loyihasidagi bilan AYNAN bir xil bo'lishi
+# shart (ikkalasi bitta faylni ochadi). 64 ta o'n oltilik belgi.
+# Bo'sh bo'lsa baza oddiy SQLite deb ochiladi.
+DB_ENCRYPTION_KEY = os.getenv("DB_ENCRYPTION_KEY", "").strip().lower()
+
+
+def db_key_pragma() -> str:
+    """`PRAGMA key` qiymati. PRAGMA bog'langan parametrni qabul qilmaydi,
+    shuning uchun hex ishlatiladi — qochirish muammosi bo'lmaydi."""
+    key = DB_ENCRYPTION_KEY
+    if len(key) != 64 or any(ch not in "0123456789abcdef" for ch in key):
+        raise SystemExit(
+            "DB_ENCRYPTION_KEY 64 ta o'n oltilik belgidan iborat bo'lishi kerak "
+            f"(hozir {len(key)} ta)."
+        )
+    return f"\"x'{key}'\""
+
+
 # Telegram xabar yuborish uchun (obuna tasdiqlandi, ommaviy xabar).
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 
