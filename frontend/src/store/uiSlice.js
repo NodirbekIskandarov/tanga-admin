@@ -8,10 +8,12 @@ const initialState = {
   requestFilter: "ochiq",
   financeDays: 30,
   statsRange: "oylik",
-  // Kunlik daromad/sarf bloki: grafik oynasi, qaysi pul oqimi va
-  // grafikmi yoki jadvalmi. Ekranlar orasida yurganda tanlov saqlanadi.
-  cashflowDays: 14,
-  cashflowSource: "service",
+  // Daromad/sarf bloki: qaysi davr kesimida (kun · hafta · oy), grafikda
+  // nechta ustun va grafikmi yoki jadvalmi. Ekranlar orasida yurganda
+  // tanlov saqlanadi. Ustunlar soni har bir davr uchun ALOHIDA eslanadi —
+  // oyga o'tib qaytganda kunlik oyna 14 kunligicha qoladi.
+  cashflowPeriod: "kun",
+  cashflowPoints: { kun: 14, hafta: 8, oy: 6 },
   cashflowView: "grafik",
   broadcastLang: "",
   logPage: 1,
@@ -39,11 +41,11 @@ const uiSlice = createSlice({
     setStatsRange(state, { payload }) {
       state.statsRange = payload;
     },
-    setCashflowDays(state, { payload }) {
-      state.cashflowDays = payload;
+    setCashflowPeriod(state, { payload }) {
+      state.cashflowPeriod = payload;
     },
-    setCashflowSource(state, { payload }) {
-      state.cashflowSource = payload;
+    setCashflowPoints(state, { payload: { davr, nuqta } }) {
+      state.cashflowPoints[davr] = nuqta;
     },
     setCashflowView(state, { payload }) {
       state.cashflowView = payload;
@@ -73,8 +75,8 @@ export const {
   setRequestFilter,
   setFinanceDays,
   setStatsRange,
-  setCashflowDays,
-  setCashflowSource,
+  setCashflowPeriod,
+  setCashflowPoints,
   setCashflowView,
   setBroadcastLang,
   setLogPage,

@@ -64,3 +64,58 @@ export function hafta(raw) {
   if (Number.isNaN(d.getTime())) return "";
   return HAFTA[(d.getDay() + 6) % 7];
 }
+
+const OYLAR = ["yanvar", "fevral", "mart", "aprel", "may", "iyun",
+               "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+const OYLAR_QISQA = ["yan", "fev", "mar", "apr", "may", "iyn",
+                     "iyl", "avg", "sen", "okt", "noy", "dek"];
+
+/** 'YYYY-MM-DD' → {yil, oy, kun}; noto'g'ri qiymatda oy `NaN` bo'ladi. */
+function bolaklar(raw) {
+  const [yil, oy, kun] = String(raw || "").split("-").map(Number);
+  return { yil, oy, kun };
+}
+
+/** «avgust» — o'tgan yildagi oy bo'lsa «avgust 2025». */
+export function oyNomi(raw) {
+  const { yil, oy } = bolaklar(raw);
+  if (!OYLAR[oy - 1]) return String(raw || "—");
+  return yil === new Date().getFullYear()
+    ? OYLAR[oy - 1]
+    : `${OYLAR[oy - 1]} ${yil}`;
+}
+
+/**
+ * Grafik o'qi uchun qisqa oy nomi — «avg».
+ *
+ * Yanvarga yil qo'shiladi («yan 27»): 12 oylik oynada yil qayerda
+ * almashganini boshqa hech narsa ko'rsatmaydi.
+ */
+export function oyQisqa(raw) {
+  const { yil, oy } = bolaklar(raw);
+  if (!OYLAR_QISQA[oy - 1]) return String(raw || "—");
+  const nom = OYLAR_QISQA[oy - 1];
+  return oy === 1 ? `${nom} ${String(yil).slice(2)}` : nom;
+}
+
+/** Sana oralig'i: «12–18 avgust», oy oshsa «28 iyul – 3 avgust». */
+export function oraliq(start, end) {
+  const a = bolaklar(start);
+  const b = bolaklar(end);
+  if (!OYLAR[a.oy - 1] || !OYLAR[b.oy - 1]) return String(start || "—");
+  if (a.yil === b.yil && a.oy === b.oy) return `${a.kun}–${b.kun} ${OYLAR[b.oy - 1]}`;
+  const bir = a.yil === b.yil ? OYLAR[a.oy - 1] : `${OYLAR[a.oy - 1]} ${a.yil}`;
+  return `${a.kun} ${bir} – ${b.kun} ${oyNomi(end)}`;
+}
+
+/**
+ * Davr nomi — jadval va ipuchalarda bir xil o'qilsin.
+ *
+ * Kun uchun sana («15.08»), hafta uchun oraliq («12–18 avgust»),
+ * oy uchun oy nomi («avgust»).
+ */
+export function davrNomi(davr, start, end) {
+  if (davr === "oy") return oyNomi(start);
+  if (davr === "hafta") return oraliq(start, end || start);
+  return kunOy(start);
+}

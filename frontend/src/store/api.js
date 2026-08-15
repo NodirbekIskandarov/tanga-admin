@@ -115,11 +115,15 @@ export const api = createApi({
       query: (davr = "oylik") => ({ url: "/stats", params: { davr } }),
       providesTags: ["Finance"],
     }),
-    // Kunlik/haftalik daromad va sarf. ATAYLAB alohida so'rov: bloki bir
-    // nechta ekranda ishlatiladi va xatosi butun sahifani yiqitmasligi,
-    // o'zi qayta urina olishi kerak.
+    // Daromad va sarf tanlangan davr (kun · hafta · oy) kesimida.
+    // ATAYLAB alohida so'rov: bloki bir nechta ekranda ishlatiladi va
+    // xatosi butun sahifani yiqitmasligi, o'zi qayta urina olishi kerak.
+    // `nuqta` — grafikdagi ustunlar soni.
     cashflow: build.query({
-      query: (kun = 14) => ({ url: "/cashflow", params: { kun } }),
+      query: ({ davr = "kun", nuqta = 0 } = {}) => ({
+        url: "/cashflow",
+        params: { davr, nuqta },
+      }),
       providesTags: ["Finance"],
     }),
 

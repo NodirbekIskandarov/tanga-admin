@@ -914,7 +914,7 @@ def recent_payments(limit: int = 20) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# Kunlik va haftalik pul oqimi
+# Pul oqimi: kun · hafta · oy
 #
 # «Daromad va sarf» ikki xil ma'noda bo'lishi mumkin, shuning uchun panelda
 # IKKALASI ham bor, lekin ATAYLAB alohida va aniq nomlangan:
@@ -931,20 +931,34 @@ def recent_payments(limit: int = 20) -> list:
 #      bir kartaga qo'shib yuborish eng katta xato bo'lardi — bir kunda
 #      50 mln so'mlik aylanma «daromad» bo'lib ko'rinardi.
 #
-# Barcha jamlash SQL tomonida (GROUP BY … SUM) bajariladi: Python'ga faqat
-# kunlik yig'indilar keladi, alohida yozuvlar emas.
+# Davrni foydalanuvchi tanlaydi: kun, hafta yoki oy. Uchalasida ham joriy
+# davr oldingi davrning AYNAN shuncha kuni bilan solishtiriladi — 15-avgustda
+# «shu oy» 1–15 avgust bo'ladi va 1–15 iyul bilan qiyoslanadi. To'liq iyul
+# bilan solishtirish har oy boshida yolg'on pasayish ko'rsatardi.
+#
+# Barcha jamlash SQL tomonida (GROUP BY … SUM) bajariladi: 12 oylik grafik
+# uchun Python'ga 12 qator keladi, 365 ta emas.
 # --------------------------------------------------------------------------- #
 
 KIND_KIRIM, KIND_CHIQIM = "kirim", "chiqim"
+
+# Grafikdagi ustunlar soni: davr → (odatiy, eng kam, eng ko'p).
+POINTS = {"kun": (14, 7, 90), "hafta": (8, 4, 26), "oy": (6, 3, 24)}
 
 
 def _has_column(c, table: str, column: str) -> bool:
     return any(r[1] == column for r in c.execute(f"PRAGMA table_info({table})"))
 
 
-def _by_day(c, sql: str, params: tuple) -> dict[str, float]:
-    """{'YYYY-MM-DD': summa} — so'rov allaqachon GROUP BY qilgan bo'lishi kerak."""
-    return {str(r[0]): float(r[1] or 0) for r in c.execute(sql, params).fetchall()}
+def _by_key(c, sql: str, params: tuple) -> dict[str, float]:
+    """{davr_boshi: summa} — so'rov allaqachon GROUP BY qilgan bo'lishi kerak.
+
+    Kalit — davrning birinchi kuni ('YYYY-MM-DD'): kunlik kesimda kunning
+    o'zi, haftalikda dushanba, oylikda oyning 1-kuni. Sanasi buzuq yozuv
+    kalitsiz qoladi va hisobga olinmaydi.
+    """
+    return {str(r[0]): float(r[1] or 0)
+            for r in c.execute(sql, params).fetchall() if r[0] is not None}
 
 
 def _range_sum(values: dict[str, float], start: date, end: date) -> float:
@@ -986,101 +1000,177 @@ def _flow(revenue: dict[str, float], expense: dict[str, float],
     }
 
 
-def cashflow(days: int = 14) -> dict:
-    """Kunlik va haftalik daromad/sarf — uchta davr va kunlik taqsimot.
+def _add_months(first: date, count: int) -> date:
+    """Oy boshiga oy qo'shish yoki ayirish — natija doim oyning 1-kuni."""
+    index = first.year * 12 + first.month - 1 + count
+    return date(index // 12, index % 12 + 1, 1)
 
-    Davrlar:
-      · bugun          — kecha bilan solishtiriladi
-      · oxirgi 7 kun   — undan oldingi 7 kun bilan
-      · joriy hafta    — dushanbadan bugungacha; o'tgan haftaning AYNAN
-                         shuncha kuni bilan. To'liq hafta bilan solishtirish
-                         yolg'on pasayish ko'rsatardi: seshanba kuni 2 kunlik
-                         summa 7 kunlik summaga qarshi qo'yilardi.
+
+def _group(period: str):
+    """Sana ustunini o'z davrining boshiga keltiruvchi SQL ifodasi.
+
+    Guruhlash SQL tomonida bo'lgani uchun 12 oylik grafik ham 12 qator
+    qaytaradi — 365 kunlik qatorni Python'da yig'ish kerak emas.
+    """
+    if period == "hafta":
+        # `weekday 0` keyingi yakshanbaga siljitadi; undan 6 kun orqaga
+        # qaytsak o'sha haftaning dushanbasi chiqadi. Bu ISO haftaga mos va
+        # yil chegarasida strftime('%Y-%W') kabi adashmaydi.
+        return lambda col: f"date({col}, 'weekday 0', '-6 days')"
+    if period == "oy":
+        return lambda col: f"date({col}, 'start of month')"
+    return lambda col: col
+
+
+def _span(period: str, end: date) -> tuple[tuple[date, date], tuple[date, date]]:
+    """Joriy davr va u solishtiriladigan oldingi davr.
+
+    Oldingi davrdan AYNAN shuncha kun olinadi. To'liq davr bilan
+    solishtirish har davr boshida yolg'on pasayish ko'rsatardi: seshanba
+    kuni 2 kunlik summa 7 kunlik summaga, 1-oktabrda esa bir kunlik summa
+    to'liq sentabrga qarshi qo'yilardi.
+    """
+    if period == "hafta":
+        start = end - timedelta(days=end.weekday())          # dushanba
+        prev_start = start - timedelta(days=7)
+        return ((start, end),
+                (prev_start, prev_start + timedelta(days=(end - start).days)))
+    if period == "oy":
+        start = end.replace(day=1)
+        prev_last = start - timedelta(days=1)                # o'tgan oyning oxiri
+        prev_start = prev_last.replace(day=1)
+        # Qisqa oydan oshib ketmasin: 31-martda solishtiruv 28-fevralda tugaydi.
+        prev_end = min(prev_start + timedelta(days=(end - start).days), prev_last)
+        return (start, end), (prev_start, prev_end)
+    yesterday = end - timedelta(days=1)
+    return (end, end), (yesterday, yesterday)
+
+
+def _buckets(period: str, points: int, end: date) -> list[tuple[date, date, bool]]:
+    """Grafik ustunlari: (boshi, oxiri, tugamaganmi) — eskisidan bugungacha.
+
+    Oxirgi ustun odatda TUGAMAGAN davr (joriy hafta, joriy oy). Uning oxiri
+    bugunga qisqartiriladi — hali kelmagan kunlar nolga qo'shilib, ustunni
+    sun'iy pasaytirmasin; interfeys esa buni ochiq belgilaydi.
+    """
+    if period == "oy":
+        starts = [_add_months(end.replace(day=1), -i)
+                  for i in range(points - 1, -1, -1)]
+        spans = [(s, _add_months(s, 1) - timedelta(days=1)) for s in starts]
+    elif period == "hafta":
+        monday = end - timedelta(days=end.weekday())
+        starts = [monday - timedelta(days=7 * i) for i in range(points - 1, -1, -1)]
+        spans = [(s, s + timedelta(days=6)) for s in starts]
+    else:
+        starts = [end - timedelta(days=i) for i in range(points - 1, -1, -1)]
+        spans = [(s, s) for s in starts]
+    return [(s, min(e, end), e > end) for s, e in spans]
+
+
+def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict, dict, dict, int]:
+    """[lo; hi] oynasidagi to'rt qator summa, `group` bergan kesimda.
+
+    Qaytadi: to'lovlar, AI sarfi (so'mda), foydalanuvchi kirimi va chiqimi,
+    hamda kursi noma'lum yozuvlar soni.
+    """
+    # `payments.created_at` — mintaqali mahalliy ISO ('…T14:30:00+05:00'),
+    # shuning uchun birinchi 10 belgi to'g'ridan-to'g'ri mahalliy sana.
+    # SQLite'ning datetime() si buni UTC ga o'girib yuborardi.
+    pay = _by_key(c,
+        f"SELECT {group('substr(created_at, 1, 10)')} k, COALESCE(SUM(amount), 0) s "
+        "FROM payments WHERE substr(created_at, 1, 10) BETWEEN ? AND ? "
+        "GROUP BY k", (lo, hi))
+    ai_usd = _by_key(c,
+        f"SELECT {group('day')} k, COALESCE(SUM(cost_usd), 0) s FROM usage_log "
+        "WHERE day BETWEEN ? AND ? GROUP BY k", (lo, hi))
+
+    # `amount_base` — yozuv kunidagi kurs bilan so'mga o'girilgan qiymat.
+    # Ustun bot migratsiyasi bilan qo'shilgan; eski bazada bo'lmasligi
+    # mumkin, shuning uchun mavjudligi tekshiriladi (admin bot jadvalini
+    # O'ZGARTIRMAYDI).
+    has_base = _has_column(c, "transactions", "amount_base")
+    amount_som = "COALESCE(amount_base, amount)" if has_base else "amount"
+    missing = "SUM(amount_base IS NULL)" if has_base else "0"
+    user_in: dict[str, float] = {}
+    user_out: dict[str, float] = {}
+    no_base = 0
+    for r in c.execute(
+            f"""SELECT {group('occurred_on')} k, kind, COALESCE(SUM({amount_som}), 0) s,
+                       {missing} nobase
+                FROM transactions
+                WHERE occurred_on BETWEEN ? AND ? AND kind IN (?, ?)
+                GROUP BY k, kind""",
+            (lo, hi, KIND_KIRIM, KIND_CHIQIM)).fetchall():
+        if r["k"] is None:          # sanasi buzuq yozuv — davrga tushmaydi
+            continue
+        bucket = user_in if r["kind"] == KIND_KIRIM else user_out
+        bucket[str(r["k"])] = float(r["s"] or 0)
+        no_base += int(r["nobase"] or 0)
+
+    ai_som = {k: v * settings.USD_RATE for k, v in ai_usd.items()}
+    return pay, ai_som, user_in, user_out, no_base
+
+
+def cashflow(period: str = "kun", points: int = 0) -> dict:
+    """Tanlangan davrdagi daromad va sarf, shu davr kesimidagi grafik bilan.
+
+    `period` — 'kun': bugun, kecha bilan solishtiriladi;
+               'hafta': dushanbadan bugungacha, o'tgan haftaning aynan
+                        shuncha kuni bilan;
+               'oy': oy boshidan bugungacha, o'tgan oyning aynan shuncha
+                     kuni bilan.
+    `points` — grafikdagi ustunlar soni; davrga qarab chegaralanadi (POINTS).
 
     Sana chegaralari server mintaqasida (Asia/Tashkent) hisoblanadi —
     `today()` shu mintaqadan oladi, bazadagi kun ustunlari ham mahalliy
     sanada yoziladi (bot `usage_log.day` va `occurred_on` ni shunday yozadi,
     admin esa `payments.created_at` ni mintaqali ISO bilan).
     """
-    days = max(7, min(int(days or 14), 90))
+    period = period if period in POINTS else "kun"
+    fallback, least, most = POINTS[period]
+    points = max(least, min(int(points or fallback), most))
+
     end = today()
-    chart_start = end - timedelta(days=days - 1)
-
-    week_start = end - timedelta(days=end.weekday())     # dushanba
-    week_len = (end - week_start).days
-    prev_week_start = week_start - timedelta(days=7)
-
-    periods = {
-        "day": ((end, end),
-                (end - timedelta(days=1), end - timedelta(days=1))),
-        "week7": ((end - timedelta(days=6), end),
-                  (end - timedelta(days=13), end - timedelta(days=7))),
-        "week": ((week_start, end),
-                 (prev_week_start, prev_week_start + timedelta(days=week_len))),
-    }
-
-    # Bitta oyna hamma davrni ham, grafikni ham qoplaydi — manba bo'yicha
-    # bittadan so'rov yetadi.
-    first = min([chart_start] + [prev[0] for _, prev in periods.values()])
-    lo, hi = first.isoformat(), end.isoformat()
+    span, prev = _span(period, end)
+    chart = _buckets(period, points, end)
+    labels = [s.isoformat() for s, _, _ in chart]
 
     with conn() as c:
-        # `payments.created_at` — mintaqali mahalliy ISO ('…T14:30:00+05:00'),
-        # shuning uchun birinchi 10 belgi to'g'ridan-to'g'ri mahalliy sana.
-        # SQLite'ning datetime() si buni UTC ga o'girib yuborardi.
-        pay = _by_day(c,
-            "SELECT substr(created_at, 1, 10) d, COALESCE(SUM(amount), 0) s "
-            "FROM payments WHERE substr(created_at, 1, 10) BETWEEN ? AND ? "
-            "GROUP BY d", (lo, hi))
-        ai_usd = _by_day(c,
-            "SELECT day d, COALESCE(SUM(cost_usd), 0) s FROM usage_log "
-            "WHERE day BETWEEN ? AND ? GROUP BY d", (lo, hi))
+        # Grafik: tanlangan davr kesimida guruhlangan.
+        pay, ai_som, user_in, user_out, no_base = _collect(
+            c, _group(period), chart[0][0].isoformat(), end.isoformat())
 
-        # `amount_base` — yozuv kunidagi kurs bilan so'mga o'girilgan qiymat.
-        # Ustun bot migratsiyasi bilan qo'shilgan; eski bazada bo'lmasligi
-        # mumkin, shuning uchun mavjudligi tekshiriladi (admin bot
-        # jadvalini O'ZGARTIRMAYDI).
-        has_base = _has_column(c, "transactions", "amount_base")
-        amount_som = "COALESCE(amount_base, amount)" if has_base else "amount"
-        missing = "SUM(amount_base IS NULL)" if has_base else "0"
-        tx_rows = c.execute(
-            f"""SELECT occurred_on d, kind, COALESCE(SUM({amount_som}), 0) s,
-                       {missing} nobase
-                FROM transactions
-                WHERE occurred_on BETWEEN ? AND ? AND kind IN (?, ?)
-                GROUP BY d, kind""",
-            (lo, hi, KIND_KIRIM, KIND_CHIQIM)).fetchall()
-
-    ai_som = {d: v * settings.USD_RATE for d, v in ai_usd.items()}
-    user_in: dict[str, float] = {}
-    user_out: dict[str, float] = {}
-    no_base = 0
-    for r in tx_rows:
-        bucket = user_in if r["kind"] == KIND_KIRIM else user_out
-        bucket[str(r["d"])] = float(r["s"] or 0)
-        no_base += int(r["nobase"] or 0)
-
-    labels = [(chart_start + timedelta(days=i)).isoformat() for i in range(days)]
+        # Ko'rsatkichlar kunlik aniqlikni talab qiladi: joriy oyning 1–15
+        # kuni o'tgan oyning AYNAN 1–15 kuni bilan solishtiriladi, buni
+        # tayyor oylik yig'indidan ajratib bo'lmaydi. Oyna kichik — eng
+        # ko'pi ikki oy. Kunlik kesimda esa grafikning o'zi kunlik, shuning
+        # uchun ikkinchi so'rov shart emas.
+        if period == "kun":
+            day_pay, day_ai, day_in, day_out = pay, ai_som, user_in, user_out
+        else:
+            day_pay, day_ai, day_in, day_out, _ = _collect(
+                c, lambda col: col, prev[0].isoformat(), end.isoformat())
 
     def line(values: dict[str, float]) -> list[int]:
-        # Ma'lumot yo'q kun TASHLAB KETILMAYDI — nol bo'lib turadi, aks holda
-        # grafik yo'q kunlarni siqib, o'sish bordek ko'rsatardi.
-        return [round(values.get(d, 0.0)) for d in labels]
+        # Harakati bo'lmagan davr TASHLAB KETILMAYDI — nol bo'lib turadi,
+        # aks holda grafik bo'sh davrlarni siqib, o'sish bordek ko'rsatardi.
+        return [round(values.get(k, 0.0)) for k in labels]
 
     return {
-        "days": days,
+        "period": period,
+        "points": points,
         "today": end.isoformat(),
-        "weekStart": week_start.isoformat(),
         "usd_rate": settings.USD_RATE,
-        "service": {key: _flow(pay, ai_som, *periods[key]) for key in periods},
-        "users": {key: _flow(user_in, user_out, *periods[key]) for key in periods},
+        "service": _flow(day_pay, day_ai, span, prev),
+        "users": _flow(day_in, day_out, span, prev),
         "series": {
             "labels": labels,
+            "ends": [e.isoformat() for _, e, _ in chart],
+            # Oxirgi davr odatda hali tugamagan — jadval buni ochiq aytadi.
+            "partial": [unfinished for _, _, unfinished in chart],
             "service": {"revenue": line(pay), "expense": line(ai_som)},
             "users": {"revenue": line(user_in), "expense": line(user_out)},
         },
-        "hasService": bool(pay or ai_som),
-        "hasUsers": bool(user_in or user_out),
         # Kursi noma'lum eski valyutali yozuvlar soni. Noldan katta bo'lsa
         # aylanma biroz kam ko'rsatiladi — interfeys buni ochiq aytadi.
         "noBaseCount": no_base,

@@ -13,11 +13,11 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 
 | Bo'lim | Imkoniyat |
 |---|---|
-| **Umumiy holat** | Kunlik va haftalik daromad/sarf (oldingi davr bilan farqi foizda), foydalanuvchilar soni va holati, konversiya, sof foyda, 30 kunlik o'sish grafigi, muddati tugayotganlar ro'yxati |
+| **Umumiy holat** | Kun · hafta · oy filtrida daromad/sarf (oldingi davrning aynan shuncha kuni bilan farqi foizda), foydalanuvchilar soni va holati, konversiya, sof foyda, 30 kunlik o'sish grafigi, muddati tugayotganlar ro'yxati |
 | **Foydalanuvchilar** | Qidiruv, holat bo'yicha filtr, 4 xil tartiblash, sahifalash, CSV eksport |
 | **Foydalanuvchi kartasi** | Obuna berish/uzaytirish/bekor qilish, sinovni uzaytirish, bloklash, shaxsiy xabar yuborish, yozuvlari, AI sarfi, to'lovlar tarixi, hamma ma'lumotni o'chirish |
 | **Obuna so'rovlari** | Botda tarif tanlagan foydalanuvchilar navbati — bir bosishda tasdiqlash yoki rad etish, foydalanuvchiga avtomatik xabar |
-| **Moliya** | Kunlik/haftalik pul oqimi (grafik va jadval ko'rinishida), daromad, AI tannarxi, sof foyda va marja; amal va model bo'yicha sarf; eng ko'p sarflaganlar; kunlik xarajat grafigi; to'lovlar CSV |
+| **Moliya** | Kun · hafta · oy kesimida pul oqimi (grafik va jadval ko'rinishida, 30 kun / 12 hafta / 12 oygacha tarix), daromad, AI tannarxi, sof foyda va marja; amal va model bo'yicha sarf; eng ko'p sarflaganlar; kunlik xarajat grafigi; to'lovlar CSV |
 | **Ommaviy xabar** | Segment bo'yicha (hammasi / sinov / obunachi / muddati tugagan) Telegram xabar yuborish |
 | **Amallar jurnali** | Har bir admin amali IP bilan qayd etiladi — o'chirib bo'lmaydi |
 
@@ -98,6 +98,12 @@ Ikkisini bitta raqamga qo'shish panelning eng katta yolg'oni bo'lardi: bir kunli
 aylanma 50 mln so'm bo'lishi mumkin, xizmat daromadi esa 136 000. Shu sabab ular
 alohida kartada, alohida nom bilan turadi. Qarz yozuvlari (`qarz_berdim`,
 `qarz_oldim`) aylanmaga kirmaydi — ular na daromad, na sarf.
+
+Davr tanlagichi (**kun · hafta · oy**) ikkala blokka ham birdek ta'sir qiladi:
+biri haftani, ikkinchisi oyni ko'rsatib tursa, ularni yonma-yon o'qib
+bo'lmasdi. Har bir davr oldingi davrning **aynan shuncha kuni** bilan
+solishtiriladi — 15-avgustda «shu oy» 1–15 avgust bo'ladi va 1–15 iyul bilan
+qiyoslanadi, to'liq iyul bilan emas.
 
 Server va domen kabi doimiy xarajatlar bazada saqlanmaydi, shuning uchun «sof
 natija» faqat AI xarajati ayirilgan holat — to'liq foyda emas.

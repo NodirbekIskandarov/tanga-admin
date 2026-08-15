@@ -540,14 +540,19 @@ def api_settings_save(request: Request, body: SettingsBody,
 
 @app.get("/api/cashflow")
 def api_cashflow(session: dict = Depends(current_admin),
-                 kun: int = Query(14, ge=7, le=90)):
-    """Kunlik va haftalik daromad/sarf.
+                 davr: str = Query("kun", max_length=8),
+                 nuqta: int = Query(0, ge=0, le=90)):
+    """Daromad va sarf — kun, hafta yoki oy kesimida.
+
+    `davr` — 'kun' | 'hafta' | 'oy'; `nuqta` — grafikdagi ustunlar soni
+    (0 bo'lsa davrning odatiy qiymati). Ikkalasini ham `store.cashflow`
+    chegaralaydi — noto'g'ri qiymat xato emas, odatiy holatga tushadi.
 
     Boshqaruv paneli va «Moliya» ekrani shu bitta manbadan oziqlanadi.
     Alohida yo'l — chunki u alohida yuklanadi va xatosi qolgan ekranni
     yiqitmasligi kerak: bloki o'zi «qayta urinish» tugmasini ko'rsatadi.
     """
-    return store.cashflow(kun)
+    return store.cashflow(davr, nuqta)
 
 
 @app.get("/api/finance")

@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useCashflowQuery } from "../store/api";
-import { setCashflowDays, setCashflowView } from "../store/uiSlice";
+import { setCashflowPeriod, setCashflowPoints, setCashflowView } from "../store/uiSlice";
 import { BarChart, Legend } from "./Chart";
 import { Card, Delta, Empty, ErrorBox, Loading, Seg } from "./common";
-import { hafta, kunOy, qisqa, som } from "../lib/format";
+import { davrNomi, hafta, kunOy, oraliq, oyQisqa, qisqa, som } from "../lib/format";
 
 /**
- * Kunlik va haftalik daromad/sarf.
+ * Daromad va sarf — kun, hafta yoki oy kesimida.
  *
  * IKKI xil pul oqimi bor va ular ATAYLAB aralashtirilmaydi:
  *
@@ -19,16 +19,36 @@ import { hafta, kunOy, qisqa, som } from "../lib/format";
  *   ishlatilayotganini ko'rsatadigan hajm. Ikkisi bitta raqamga qo'shilsa
  *   panel yolg'on gapirgan bo'lardi.
  *
+ * Davr tanlagichi IKKALA blokka ham birdek ta'sir qiladi: bir blok haftani,
+ * ikkinchisi oyni ko'rsatib tursa, ular yonma-yon o'qilmay qolardi.
+ *
  * Ranglar: daromad — yashil, sarf — qizil. Rang yagona belgi emas —
  * ustunlar tartibi doim bir xil (chapda daromad), yonida nom bilan
  * belgisi bor va «Jadval» ko'rinishida hamma son matn bilan yozilgan.
  */
 
-const RANGES = [
-  [7, "7 kun"],
-  [14, "14 kun"],
-  [30, "30 kun"],
+const PERIODS = [
+  ["kun", "Kun"],
+  ["hafta", "Hafta"],
+  ["oy", "Oy"],
 ];
+
+// Grafik oynasi har bir davr uchun alohida: kunlarda 14–30 kun, haftalarda
+// 8–12 hafta, oylarda 6–12 oy — hammasi bir ekranga sig'adigan miqdor.
+const SPANS = {
+  kun: [[14, "14 kun"], [30, "30 kun"]],
+  hafta: [[8, "8 hafta"], [12, "12 hafta"]],
+  oy: [[6, "6 oy"], [12, "12 oy"]],
+};
+
+// Joriy va solishtiriladigan davr nomlari.
+const TITLES = {
+  kun: ["Bugun", "Kecha"],
+  hafta: ["Shu hafta", "O'tgan hafta"],
+  oy: ["Shu oy", "O'tgan oy"],
+};
+
+const COLUMN = { kun: "Kun", hafta: "Hafta", oy: "Oy" };
 
 const VIEWS = [
   ["grafik", "Grafik"],
@@ -38,9 +58,16 @@ const VIEWS = [
 const IN_COLOR = "--success";
 const OUT_COLOR = "--danger";
 
-/** Sana oralig'i: bir kunlik davr uchun bitta sana. */
-function range(start, end) {
-  return start === end ? kunOy(start) : `${kunOy(start)} – ${kunOy(end)}`;
+/**
+ * Karta sarlavhasidagi oraliq.
+ *
+ * Bir kunlik davrga bitta sana yetadi, uzunroq davr esa AYNAN qaysi
+ * kunlarni qamrayotganini aytishi kerak: «Shu oy 1–15 avgust» va yonida
+ * «O'tgan oy 1–15 iyul» — solishtiruv teng kunlar bo'yicha ketayotgani
+ * shundan ko'rinadi.
+ */
+function range(period, start, end) {
+  return period === "kun" ? kunOy(start) : oraliq(start, end);
 }
 
 function Line({ label, color, value, delta, prev, invert, tone = "" }) {
@@ -52,72 +79,88 @@ function Line({ label, color, value, delta, prev, invert, tone = "" }) {
       </span>
       <span className="r">
         <span className={`v ${tone}`}>{som(value)}</span>
-        <Delta
-          value={delta}
-          now={value}
-          invert={invert}
-          hint={`Oldingi davr: ${som(prev)} so'm`}
-        />
+        {/* Solishtiruv kartasida foiz yo'q: u o'zi solishtirish nuqtasi,
+            «o'zidan oldingi davr» esa boshqa savol. */}
+        {delta !== false && (
+          <Delta
+            value={delta}
+            now={value}
+            invert={invert}
+            hint={`Oldingi davr: ${som(prev)} so'm`}
+          />
+        )}
       </span>
     </div>
   );
 }
 
-/** Bitta davr kartasi: daromad, sarf va ularning farqi. */
-function Flow({ title, p, inLabel, outLabel, netLabel }) {
+/**
+ * Bitta davr kartasi: daromad, sarf va ularning farqi.
+ *
+ * `compare` — o'tgan davr kartasi: o'sha sonlar, foizsiz va xira.
+ * Foiz ipuchasi sichqonchasiz qurilmada ko'rinmaydi, shuning uchun
+ * solishtirilayotgan davr sonlari yashirin qolmaydi.
+ */
+function Flow({ title, period, p, compare = false, inLabel, outLabel, netLabel }) {
+  const v = compare
+    ? { start: p.prevStart, end: p.prevEnd, revenue: p.prevRevenue,
+        expense: p.prevExpense, net: p.prevNet }
+    : p;
+
   return (
-    <div className="flow">
+    <div className={`flow${compare ? " ref" : ""}`}>
       <header>
         <b>{title}</b>
-        {/* Solishtirilayotgan davr sarlavhaga sig'maydi, lekin uni bilish
-            kerak: joriy hafta o'tgan haftaning AYNAN shuncha kuni bilan
-            solishtiriladi — to'liq hafta bilan emas. */}
-        <span title={`Solishtiruv: ${range(p.prevStart, p.prevEnd)}`}>
-          {range(p.start, p.end)}
+        <span
+          title={compare ? "Joriy davr bilan teng kunlar oralig'i" : undefined}
+        >
+          {range(period, v.start, v.end)}
         </span>
       </header>
       <Line
         label={inLabel}
         color={IN_COLOR}
-        value={p.revenue}
-        delta={p.revenueDelta}
+        value={v.revenue}
+        delta={compare ? false : p.revenueDelta}
         prev={p.prevRevenue}
       />
       <Line
         label={outLabel}
         color={OUT_COLOR}
-        value={p.expense}
-        delta={p.expenseDelta}
+        value={v.expense}
+        delta={compare ? false : p.expenseDelta}
         prev={p.prevExpense}
         invert
       />
       <div className="flow-line sum">
         <span className="k">{netLabel}</span>
         <span className="r">
-          <span className={`v ${p.net < 0 ? "neg" : ""}`}>{som(p.net)}</span>
-          <Delta
-            value={p.netDelta}
-            now={p.net}
-            hint={`Oldingi davr: ${som(p.prevNet)} so'm`}
-          />
+          <span className={`v ${v.net < 0 ? "neg" : ""}`}>{som(v.net)}</span>
+          {!compare && (
+            <Delta
+              value={p.netDelta}
+              now={p.net}
+              hint={`Oldingi davr: ${som(p.prevNet)} so'm`}
+            />
+          )}
         </span>
       </div>
     </div>
   );
 }
 
-/** Kunlik sonlar jadvali — grafikning matnli egizagi. */
-function DailyTable({ labels, revenue, expense, inLabel, outLabel }) {
-  // Harakati yo'q kun ham qoladi — noli bilan. Bo'sh kunlarni tashlab
+/** Davrlar jadvali — grafikning matnli egizagi. */
+function FlowTable({ period, series, revenue, expense, inLabel, outLabel }) {
+  // Harakati yo'q davr ham qoladi — noli bilan. Bo'shlarini tashlab
   // ketish o'sish bordek ko'rsatardi, grafikda ham, jadvalda ham.
-  const rows = labels.map((d, i) => ({ d, i })).reverse();
+  const rows = series.labels.map((d, i) => ({ d, i })).reverse();
 
   return (
     <div className="tbl-wrap">
       <table>
         <thead>
           <tr>
-            <th>Kun</th>
+            <th>{COLUMN[period]}</th>
             <th className="num">{inLabel}</th>
             <th className="num">{outLabel}</th>
             <th className="num">Farqi</th>
@@ -126,10 +169,16 @@ function DailyTable({ labels, revenue, expense, inLabel, outLabel }) {
         <tbody>
           {rows.map(({ d, i }) => {
             const net = revenue[i] - expense[i];
+            // Oxirgi hafta/oy hali tugamagan — sonini to'liq davr bilan
+            // solishtirib bo'lmasligi shu yerda ochiq aytiladi.
+            const note = period === "kun"
+              ? hafta(d)
+              : series.partial[i] && "davom etmoqda";
             return (
               <tr key={d}>
-                <td className="mono nowrap">
-                  {kunOy(d)} <span className="muted">{hafta(d)}</span>
+                <td className={period === "kun" ? "mono nowrap" : "nowrap"}>
+                  {davrNomi(period, d, series.ends[i])}{" "}
+                  {note && <span className="muted">{note}</span>}
                 </td>
                 <td className="num">{som(revenue[i])}</td>
                 <td className="num">{som(expense[i])}</td>
@@ -145,35 +194,37 @@ function DailyTable({ labels, revenue, expense, inLabel, outLabel }) {
   );
 }
 
-/** Bitta pul oqimi: uchta davr + kunlik taqsimot. */
-function Block({ title, flows, series, labels, view, chart, hint,
+/** Bitta pul oqimi: tanlangan davr, solishtiruvi va tarixi. */
+function Block({ title, period, flow, series, values, view, chart, hint,
                 inLabel, outLabel, netLabel, empty }) {
   const bars = useMemo(
     () => [
-      { data: series.revenue, color: IN_COLOR },
-      { data: series.expense, color: OUT_COLOR },
+      { data: values.revenue, color: IN_COLOR },
+      { data: values.expense, color: OUT_COLOR },
     ],
-    [series]
+    [values]
   );
 
   const tip = useMemo(
     () => (i) =>
-      `${kunOy(labels[i])} · ${inLabel.toLowerCase()} ${som(series.revenue[i])} · ` +
-      `${outLabel.toLowerCase()} ${som(series.expense[i])}`,
-    [labels, series, inLabel, outLabel]
+      `${davrNomi(period, series.labels[i], series.ends[i])} · ` +
+      `${inLabel.toLowerCase()} ${som(values.revenue[i])} · ` +
+      `${outLabel.toLowerCase()} ${som(values.expense[i])}`,
+    [period, series, values, inLabel, outLabel]
   );
 
-  const hasAny = series.revenue.some(Boolean) || series.expense.some(Boolean);
+  // Oylik kesimda o'q ostida sana emas, oy nomi turishi kerak.
+  const xLabel = period === "oy" ? oyQisqa : undefined;
+  const [now, before] = TITLES[period];
+  const hasAny = values.revenue.some(Boolean) || values.expense.some(Boolean);
 
   return (
     <Card title={title}>
       <div className="pad stack-sm">
         <div className="flows">
-          <Flow title="Bugun" p={flows.day} inLabel={inLabel}
+          <Flow title={now} period={period} p={flow} inLabel={inLabel}
                 outLabel={outLabel} netLabel={netLabel} />
-          <Flow title="Oxirgi 7 kun" p={flows.week7} inLabel={inLabel}
-                outLabel={outLabel} netLabel={netLabel} />
-          <Flow title="Shu hafta" p={flows.week} inLabel={inLabel}
+          <Flow title={before} period={period} p={flow} compare inLabel={inLabel}
                 outLabel={outLabel} netLabel={netLabel} />
         </div>
 
@@ -181,7 +232,8 @@ function Block({ title, flows, series, labels, view, chart, hint,
 
         {chart && hasAny && view === "grafik" && (
           <div>
-            <BarChart labels={labels} series={bars} format={qisqa} tip={tip} />
+            <BarChart labels={series.labels} series={bars} format={qisqa}
+                      tip={tip} xLabel={xLabel} />
             <Legend
               items={[
                 { label: inLabel, color: IN_COLOR },
@@ -192,8 +244,8 @@ function Block({ title, flows, series, labels, view, chart, hint,
         )}
 
         {chart && hasAny && view === "jadval" && (
-          <DailyTable labels={labels} revenue={series.revenue}
-                      expense={series.expense} inLabel={inLabel} outLabel={outLabel} />
+          <FlowTable period={period} series={series} revenue={values.revenue}
+                     expense={values.expense} inLabel={inLabel} outLabel={outLabel} />
         )}
 
         <p className="hint">{hint}</p>
@@ -204,26 +256,30 @@ function Block({ title, flows, series, labels, view, chart, hint,
 
 export default function Cashflow({ full = false }) {
   const dispatch = useDispatch();
-  const days = useSelector((s) => s.ui.cashflowDays);
+  const period = useSelector((s) => s.ui.cashflowPeriod);
+  const points = useSelector((s) => s.ui.cashflowPoints[s.ui.cashflowPeriod]);
   const view = useSelector((s) => s.ui.cashflowView);
-  const { data, isLoading, error, refetch } = useCashflowQuery(days, {
-    pollingInterval: 60000,
-  });
-
-  if (isLoading) return <Loading label="Pul oqimi yuklanmoqda…" />;
-  if (error) return <ErrorBox error={error} onRetry={refetch} />;
-  if (!data) return null;
+  const { data, isLoading, error, refetch } = useCashflowQuery(
+    { davr: period, nuqta: points },
+    { pollingInterval: 60000 }
+  );
 
   // Filtrlar bitta qatorda va IKKALA blokni ham boshqaradi — har bir
   // grafikning o'z tanlagichi bo'lsa, ikkovi turli davrni ko'rsatib
   // taqqoslashni buzardi.
   const filters = (
     <div className="row">
-      <span className="lbl">Kunlik taqsimot:</span>
+      <span className="lbl">Davr:</span>
       <Seg
-        options={RANGES}
-        value={days}
-        onChange={(d) => dispatch(setCashflowDays(d))}
+        options={PERIODS}
+        value={period}
+        onChange={(p) => dispatch(setCashflowPeriod(p))}
+      />
+      <span className="lbl">Tarix:</span>
+      <Seg
+        options={SPANS[period]}
+        value={points}
+        onChange={(n) => dispatch(setCashflowPoints({ davr: period, nuqta: n }))}
       />
       <span className="spacer" />
       <Seg
@@ -234,15 +290,29 @@ export default function Cashflow({ full = false }) {
     </div>
   );
 
+  // Yangi davr birinchi marta so'ralganda ma'lumot bo'lmaydi. Tanlagich
+  // shunda ham joyida qoladi: g'oyib bo'lsa, tanlovni o'zgartirgan odam
+  // nima bosganini yo'qotib qo'yadi va tugmalar sakrab ketadi.
+  if (isLoading || error || !data) {
+    return (
+      <>
+        {filters}
+        {error ? <ErrorBox error={error} onRetry={refetch} />
+               : <Loading label="Pul oqimi yuklanmoqda…" />}
+      </>
+    );
+  }
+
   return (
     <>
       {filters}
 
       <Block
         title="Xizmat daromadi va sarfi"
-        flows={data.service}
-        series={data.series.service}
-        labels={data.series.labels}
+        period={data.period}
+        flow={data.service}
+        series={data.series}
+        values={data.series.service}
         view={view}
         chart
         inLabel="Daromad"
@@ -264,9 +334,10 @@ export default function Cashflow({ full = false }) {
 
       <Block
         title="Foydalanuvchilar aylanmasi"
-        flows={data.users}
-        series={data.series.users}
-        labels={data.series.labels}
+        period={data.period}
+        flow={data.users}
+        series={data.series}
+        values={data.series.users}
         view={view}
         chart={full}
         inLabel="Kirim"

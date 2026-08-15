@@ -390,7 +390,7 @@ tbody tr.click:hover { background: var(--sunken); }
 }
 
 /* --------------------------------------------------------------------- *
- * Pul oqimi: kunlik va haftalik daromad/sarf
+ * Pul oqimi: kun · hafta · oy kesimidagi daromad/sarf
  * --------------------------------------------------------------------- */
 
 /* Davr kartalari o'zi joylashadi — tor ekranda ustma-ust tushadi va
@@ -430,6 +430,13 @@ tbody tr.click:hover { background: var(--sunken); }
 }
 .flow-line.sum .k { color: var(--text); }
 .flow-line.sum .v { font-weight: 500; }
+
+/* Solishtiruv kartasi — o'tgan davrning AYNAN shuncha kuni. Uzuq chegara
+   va xira son: bu asosiy raqam emas, joriy davr nimaga nisbatan
+   o'lchanayotganini ko'rsatadi. Sonlar YASHIRILMAYDI — foiz ipuchasi
+   sichqonchasiz qurilmada ochilmaydi, solishtiruv esa ko'rinishi shart. */
+.flow.ref { background: transparent; border-style: dashed; }
+.flow.ref .flow-line .v { color: var(--text-2); }
 
 /* O'zgarish ko'rsatkichi. Rang YAGONA belgi emas — o'q ham bor,
    shuning uchun rang ko'rmaydigan odam ham yo'nalishni tushunadi. */

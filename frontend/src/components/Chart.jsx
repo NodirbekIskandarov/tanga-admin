@@ -58,14 +58,30 @@ function drawAxis(ctx, { padL, padT, w, h }, labels, formatter) {
   }
 }
 
-function drawDates(ctx, { padL, padT, w, h }, labels, xOf) {
+/** O'q yorlig'ining odatiy ko'rinishi: '2026-08-15' → «15.08». */
+function kunOy(label) {
+  const [, month, dayPart] = String(label).split("-");
+  return dayPart ? `${dayPart}.${month}` : String(label);
+}
+
+/**
+ * X o'qidagi sanalar.
+ *
+ * Nechtasi chizilishi joyga qarab hisoblanadi: 30 kunlik oynada har
+ * ikkinchisi, 6 oylikda esa hammasi sig'adi. Oxirgi yorliq DOIM
+ * ko'rinadi — grafik qayerda tugagani birinchi savol; unga tegib
+ * qoladigan yorliq esa tashlanadi.
+ */
+function drawDates(ctx, { padL, padT, w, h }, labels, xOf, format = kunOy) {
   ctx.fillStyle = cssVar("--text-3", "#8A97A4");
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
+  const fits = Math.max(1, Math.floor(w / 46));
+  const step = Math.max(1, Math.ceil(labels.length / fits));
   labels.forEach((label, i) => {
-    if (i % 5 !== 0 && i !== labels.length - 1) return;
-    const [, month, dayPart] = label.split("-");
-    ctx.fillText(`${dayPart}.${month}`, xOf(i), padT + h + 7);
+    const last = i === labels.length - 1;
+    if (!last && (i % step !== 0 || labels.length - 1 - i < step)) return;
+    ctx.fillText(format(label, i), xOf(i), padT + h + 7);
   });
 }
 
@@ -86,9 +102,10 @@ function bar(ctx, x, y, w, h) {
  *
  * `format` — o'q qiymatlarini qisqartirish uchun (so'mda millionlar to'liq
  * yozilsa o'q o'qilmay qoladi). `tip` — sichqoncha ustiga kelganda
- * ko'rsatiladigan matn. Ikkalasi ham ixtiyoriy: berilmasa xom son chiqadi.
+ * ko'rsatiladigan matn. `xLabel` — pastdagi yorliq (oylik kesimda sana
+ * emas, oy nomi kerak). Uchalasi ham ixtiyoriy.
  */
-export function BarChart({ labels, series, height = 200, format, tip }) {
+export function BarChart({ labels, series, height = 200, format, tip, xLabel }) {
   const ref = useRef(null);
   const boxRef = useRef(null);
   const [hover, setHover] = useState(null);
@@ -141,7 +158,7 @@ export function BarChart({ labels, series, height = 200, format, tip }) {
         ctx.globalAlpha = 1;
       }
 
-      drawDates(ctx, box, labels, (i) => box.padL + slot * i + slot / 2);
+      drawDates(ctx, box, labels, (i) => box.padL + slot * i + slot / 2, xLabel);
     }
 
     draw();
@@ -158,7 +175,7 @@ export function BarChart({ labels, series, height = 200, format, tip }) {
       window.removeEventListener("resize", onResize);
       watch.disconnect();
     };
-  }, [labels, series, height, format, hover]);
+  }, [labels, series, height, format, xLabel, hover]);
 
   // Nishon butun kun ustuni — mayda ustunning o'ziga tegish shart emas.
   function onMove(event) {
