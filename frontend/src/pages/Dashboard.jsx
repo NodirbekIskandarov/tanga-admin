@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useDashboardQuery } from "../store/api";
 import Fresh from "../components/Fresh";
+import Cashflow from "../components/Cashflow";
 import { BarChart, Legend } from "../components/Chart";
 import {
   Av, Bars, Card, Empty, ErrorBox, Kpi, Loading, Tag,
@@ -48,6 +49,10 @@ export default function Dashboard() {
           <Link className="btn sm" to="/statistika">Statistika</Link>
         </div>
       )}
+
+      {/* Kunlik va haftalik pul oqimi — egasi birinchi qaraydigan raqam,
+          shuning uchun oylik ko'rsatkichlardan ham tepada turadi. */}
+      <Cashflow />
 
       <div className="kpis three">
         <Kpi

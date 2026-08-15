@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { useFinanceQuery } from "../store/api";
 import { setFinanceDays } from "../store/uiSlice";
 import { LineChart, Legend } from "../components/Chart";
+import Cashflow from "../components/Cashflow";
 import Fresh from "../components/Fresh";
 import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
 import { dt, som, usd } from "../lib/format";
@@ -32,6 +33,9 @@ export default function Finance() {
   return (
     <>
       <div className="row">
+        {/* Nomlangan: pastda kunlik pul oqimining ham o'z oynasi bor —
+            ikkita bir xil ko'rinishdagi tanlagich chalg'itmasin. */}
+        <span className="lbl">AI sarfi tahlili:</span>
         <Seg
           options={RANGES}
           value={days}
@@ -47,6 +51,11 @@ export default function Finance() {
         </a>
       </div>
 
+      {/* Kunlik va haftalik kesim — oylik ko'rsatkichlardan oldin: savol
+          odatda «bugun nima bo'ldi» dan boshlanadi. */}
+      <Cashflow full />
+
+      <h2 className="sec">Oylik ko'rsatkichlar</h2>
       <div className="kpis three">
         <Kpi label="Shu oy daromad" value={som(ov.revenue_month)} sub="so'm" tone="brass" />
         <Kpi

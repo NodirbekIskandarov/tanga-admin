@@ -60,6 +60,67 @@ export function Tag({ children, kind }) {
   return <span className={`tag ${kind || ""}`}>{children}</span>;
 }
 
+function foiz(value) {
+  const abs = Math.abs(value);
+  const text =
+    abs >= 100
+      ? String(Math.round(abs))
+      : abs.toFixed(1).replace(/\.0$/, "").replace(".", ",");
+  return `${text}%`;
+}
+
+/**
+ * Oldingi davrga nisbatan o'zgarish.
+ *
+ * Rang YAGONA belgi emas: o'q (↑ ↓ →) va aria matni ham bor — rang
+ * ko'rmaydigan yoki qora-oq chop etilgan holatda ham ma'no yo'qolmaydi.
+ *
+ * `invert` — sarf uchun: sarfning o'sishi yaxshi xabar emas, shuning
+ * uchun yashil bilan qizil o'rin almashadi.
+ * `value` null bo'lsa oldingi davrda son nol (yoki manfiy) bo'lgan —
+ * foiz hisoblab bo'lmaydi, shuning uchun «yangi» yoki «—» chiqadi.
+ */
+export function Delta({ value, now = 0, hint = "", invert = false }) {
+  const good = (up) => (invert ? !up : up);
+
+  if (value === null || value === undefined) {
+    if (!now) {
+      return (
+        <span className="delta none" title={hint || "Oldingi davrda ham bo'lmagan"}>
+          —
+        </span>
+      );
+    }
+    return (
+      <span
+        className={`delta ${good(true) ? "good" : "bad"}`}
+        title={hint || "Oldingi davrda bo'lmagan"}
+      >
+        ↑ yangi
+      </span>
+    );
+  }
+
+  if (Math.abs(value) < 0.05) {
+    return (
+      <span className="delta flat" title={hint} aria-label="o'zgarmadi">
+        → 0%
+      </span>
+    );
+  }
+
+  const up = value > 0;
+  return (
+    <span
+      className={`delta ${good(up) ? "good" : "bad"}`}
+      title={hint}
+      aria-label={`${foiz(value)} ${up ? "o'sish" : "pasayish"}`}
+    >
+      {up ? "↑" : "↓"} {foiz(value)}
+    </span>
+  );
+}
+
 /** Bosh harflardan iborat avatar. Rang ID bo'yicha barqaror. */
 export function Av({ name, seed, size = "" }) {
   return (

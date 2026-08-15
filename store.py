@@ -913,6 +913,180 @@ def recent_payments(limit: int = 20) -> list:
                ORDER BY p.id DESC LIMIT ?""", (limit,)).fetchall()]
 
 
+# --------------------------------------------------------------------------- #
+# Kunlik va haftalik pul oqimi
+#
+# «Daromad va sarf» ikki xil ma'noda bo'lishi mumkin, shuning uchun panelda
+# IKKALASI ham bor, lekin ATAYLAB alohida va aniq nomlangan:
+#
+#   1. Xizmat daromadi — Tanga'ning O'Z puli. Daromad: tasdiqlangan obuna
+#      to'lovlari (`payments.amount`, so'm). Sarf: AI chaqiruvlari
+#      (`usage_log.cost_usd`, dollar → so'mga USD_RATE bilan o'giriladi).
+#      Server ijarasi kabi doimiy xarajatlar bazada yo'q — ular bu yerga
+#      kirmaydi va shu sabab «sof natija» emas, «xizmat sofi» deb ataladi.
+#
+#   2. Foydalanuvchilar aylanmasi — odamlarning botga yozgan kirim/chiqim
+#      yozuvlari yig'indisi (`transactions`). Bu Tanga'ning puli EMAS,
+#      mahsulot qanchalik ishlatilayotganini ko'rsatadigan hajm. Ikkalasini
+#      bir kartaga qo'shib yuborish eng katta xato bo'lardi — bir kunda
+#      50 mln so'mlik aylanma «daromad» bo'lib ko'rinardi.
+#
+# Barcha jamlash SQL tomonida (GROUP BY … SUM) bajariladi: Python'ga faqat
+# kunlik yig'indilar keladi, alohida yozuvlar emas.
+# --------------------------------------------------------------------------- #
+
+KIND_KIRIM, KIND_CHIQIM = "kirim", "chiqim"
+
+
+def _has_column(c, table: str, column: str) -> bool:
+    return any(r[1] == column for r in c.execute(f"PRAGMA table_info({table})"))
+
+
+def _by_day(c, sql: str, params: tuple) -> dict[str, float]:
+    """{'YYYY-MM-DD': summa} — so'rov allaqachon GROUP BY qilgan bo'lishi kerak."""
+    return {str(r[0]): float(r[1] or 0) for r in c.execute(sql, params).fetchall()}
+
+
+def _range_sum(values: dict[str, float], start: date, end: date) -> float:
+    total = 0.0
+    cur = start
+    while cur <= end:
+        total += values.get(cur.isoformat(), 0.0)
+        cur += timedelta(days=1)
+    return total
+
+
+def _delta(now: float, prev: float) -> float | None:
+    """Foizdagi o'zgarish. Oldingi davr nol yoki manfiy bo'lsa foiz ma'nosiz
+    (nolga bo'lish, yoki «-100 dan +50 ga» degan tushunarsiz raqam) — bunda
+    None qaytadi va interfeys foiz o'rniga «yangi» yoki «—» ko'rsatadi."""
+    if prev <= 0:
+        return None
+    return round(100 * (now - prev) / prev, 1)
+
+
+def _flow(revenue: dict[str, float], expense: dict[str, float],
+          span: tuple[date, date], prev: tuple[date, date]) -> dict:
+    """Bitta davr: daromad, sarf, sof natija va oldingi davr bilan farq."""
+    now_in = _range_sum(revenue, *span)
+    now_out = _range_sum(expense, *span)
+    prev_in = _range_sum(revenue, *prev)
+    prev_out = _range_sum(expense, *prev)
+    return {
+        "start": span[0].isoformat(), "end": span[1].isoformat(),
+        "prevStart": prev[0].isoformat(), "prevEnd": prev[1].isoformat(),
+        "days": (span[1] - span[0]).days + 1,
+        "revenue": round(now_in), "expense": round(now_out),
+        "net": round(now_in - now_out),
+        "prevRevenue": round(prev_in), "prevExpense": round(prev_out),
+        "prevNet": round(prev_in - prev_out),
+        "revenueDelta": _delta(now_in, prev_in),
+        "expenseDelta": _delta(now_out, prev_out),
+        "netDelta": _delta(now_in - now_out, prev_in - prev_out),
+    }
+
+
+def cashflow(days: int = 14) -> dict:
+    """Kunlik va haftalik daromad/sarf — uchta davr va kunlik taqsimot.
+
+    Davrlar:
+      · bugun          — kecha bilan solishtiriladi
+      · oxirgi 7 kun   — undan oldingi 7 kun bilan
+      · joriy hafta    — dushanbadan bugungacha; o'tgan haftaning AYNAN
+                         shuncha kuni bilan. To'liq hafta bilan solishtirish
+                         yolg'on pasayish ko'rsatardi: seshanba kuni 2 kunlik
+                         summa 7 kunlik summaga qarshi qo'yilardi.
+
+    Sana chegaralari server mintaqasida (Asia/Tashkent) hisoblanadi —
+    `today()` shu mintaqadan oladi, bazadagi kun ustunlari ham mahalliy
+    sanada yoziladi (bot `usage_log.day` va `occurred_on` ni shunday yozadi,
+    admin esa `payments.created_at` ni mintaqali ISO bilan).
+    """
+    days = max(7, min(int(days or 14), 90))
+    end = today()
+    chart_start = end - timedelta(days=days - 1)
+
+    week_start = end - timedelta(days=end.weekday())     # dushanba
+    week_len = (end - week_start).days
+    prev_week_start = week_start - timedelta(days=7)
+
+    periods = {
+        "day": ((end, end),
+                (end - timedelta(days=1), end - timedelta(days=1))),
+        "week7": ((end - timedelta(days=6), end),
+                  (end - timedelta(days=13), end - timedelta(days=7))),
+        "week": ((week_start, end),
+                 (prev_week_start, prev_week_start + timedelta(days=week_len))),
+    }
+
+    # Bitta oyna hamma davrni ham, grafikni ham qoplaydi — manba bo'yicha
+    # bittadan so'rov yetadi.
+    first = min([chart_start] + [prev[0] for _, prev in periods.values()])
+    lo, hi = first.isoformat(), end.isoformat()
+
+    with conn() as c:
+        # `payments.created_at` — mintaqali mahalliy ISO ('…T14:30:00+05:00'),
+        # shuning uchun birinchi 10 belgi to'g'ridan-to'g'ri mahalliy sana.
+        # SQLite'ning datetime() si buni UTC ga o'girib yuborardi.
+        pay = _by_day(c,
+            "SELECT substr(created_at, 1, 10) d, COALESCE(SUM(amount), 0) s "
+            "FROM payments WHERE substr(created_at, 1, 10) BETWEEN ? AND ? "
+            "GROUP BY d", (lo, hi))
+        ai_usd = _by_day(c,
+            "SELECT day d, COALESCE(SUM(cost_usd), 0) s FROM usage_log "
+            "WHERE day BETWEEN ? AND ? GROUP BY d", (lo, hi))
+
+        # `amount_base` — yozuv kunidagi kurs bilan so'mga o'girilgan qiymat.
+        # Ustun bot migratsiyasi bilan qo'shilgan; eski bazada bo'lmasligi
+        # mumkin, shuning uchun mavjudligi tekshiriladi (admin bot
+        # jadvalini O'ZGARTIRMAYDI).
+        has_base = _has_column(c, "transactions", "amount_base")
+        amount_som = "COALESCE(amount_base, amount)" if has_base else "amount"
+        missing = "SUM(amount_base IS NULL)" if has_base else "0"
+        tx_rows = c.execute(
+            f"""SELECT occurred_on d, kind, COALESCE(SUM({amount_som}), 0) s,
+                       {missing} nobase
+                FROM transactions
+                WHERE occurred_on BETWEEN ? AND ? AND kind IN (?, ?)
+                GROUP BY d, kind""",
+            (lo, hi, KIND_KIRIM, KIND_CHIQIM)).fetchall()
+
+    ai_som = {d: v * settings.USD_RATE for d, v in ai_usd.items()}
+    user_in: dict[str, float] = {}
+    user_out: dict[str, float] = {}
+    no_base = 0
+    for r in tx_rows:
+        bucket = user_in if r["kind"] == KIND_KIRIM else user_out
+        bucket[str(r["d"])] = float(r["s"] or 0)
+        no_base += int(r["nobase"] or 0)
+
+    labels = [(chart_start + timedelta(days=i)).isoformat() for i in range(days)]
+
+    def line(values: dict[str, float]) -> list[int]:
+        # Ma'lumot yo'q kun TASHLAB KETILMAYDI — nol bo'lib turadi, aks holda
+        # grafik yo'q kunlarni siqib, o'sish bordek ko'rsatardi.
+        return [round(values.get(d, 0.0)) for d in labels]
+
+    return {
+        "days": days,
+        "today": end.isoformat(),
+        "weekStart": week_start.isoformat(),
+        "usd_rate": settings.USD_RATE,
+        "service": {key: _flow(pay, ai_som, *periods[key]) for key in periods},
+        "users": {key: _flow(user_in, user_out, *periods[key]) for key in periods},
+        "series": {
+            "labels": labels,
+            "service": {"revenue": line(pay), "expense": line(ai_som)},
+            "users": {"revenue": line(user_in), "expense": line(user_out)},
+        },
+        "hasService": bool(pay or ai_som),
+        "hasUsers": bool(user_in or user_out),
+        # Kursi noma'lum eski valyutali yozuvlar soni. Noldan katta bo'lsa
+        # aylanma biroz kam ko'rsatiladi — interfeys buni ochiq aytadi.
+        "noBaseCount": no_base,
+    }
+
+
 def expiring_soon(days: int = 7, owner_ids: set[int] | None = None) -> list:
     """Yaqin kunlarda muddati tugaydiganlar — ularga oldindan yozish kerak."""
     owner_ids = owner_ids or set()

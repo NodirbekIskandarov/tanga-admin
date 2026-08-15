@@ -8,6 +8,11 @@ const initialState = {
   requestFilter: "ochiq",
   financeDays: 30,
   statsRange: "oylik",
+  // Kunlik daromad/sarf bloki: grafik oynasi, qaysi pul oqimi va
+  // grafikmi yoki jadvalmi. Ekranlar orasida yurganda tanlov saqlanadi.
+  cashflowDays: 14,
+  cashflowSource: "service",
+  cashflowView: "grafik",
   broadcastLang: "",
   logPage: 1,
   toasts: [],
@@ -34,6 +39,15 @@ const uiSlice = createSlice({
     setStatsRange(state, { payload }) {
       state.statsRange = payload;
     },
+    setCashflowDays(state, { payload }) {
+      state.cashflowDays = payload;
+    },
+    setCashflowSource(state, { payload }) {
+      state.cashflowSource = payload;
+    },
+    setCashflowView(state, { payload }) {
+      state.cashflowView = payload;
+    },
     setBroadcastLang(state, { payload }) {
       state.broadcastLang = payload;
     },
@@ -59,6 +73,9 @@ export const {
   setRequestFilter,
   setFinanceDays,
   setStatsRange,
+  setCashflowDays,
+  setCashflowSource,
+  setCashflowView,
   setBroadcastLang,
   setLogPage,
   pushToast,

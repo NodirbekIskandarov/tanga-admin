@@ -538,6 +538,18 @@ def api_settings_save(request: Request, body: SettingsBody,
 # Moliya
 # --------------------------------------------------------------------------- #
 
+@app.get("/api/cashflow")
+def api_cashflow(session: dict = Depends(current_admin),
+                 kun: int = Query(14, ge=7, le=90)):
+    """Kunlik va haftalik daromad/sarf.
+
+    Boshqaruv paneli va «Moliya» ekrani shu bitta manbadan oziqlanadi.
+    Alohida yo'l — chunki u alohida yuklanadi va xatosi qolgan ekranni
+    yiqitmasligi kerak: bloki o'zi «qayta urinish» tugmasini ko'rsatadi.
+    """
+    return store.cashflow(kun)
+
+
 @app.get("/api/finance")
 def api_finance(session: dict = Depends(current_admin),
                 kun: int = Query(30, ge=7, le=365)):

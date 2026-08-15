@@ -115,6 +115,13 @@ export const api = createApi({
       query: (davr = "oylik") => ({ url: "/stats", params: { davr } }),
       providesTags: ["Finance"],
     }),
+    // Kunlik/haftalik daromad va sarf. ATAYLAB alohida so'rov: bloki bir
+    // nechta ekranda ishlatiladi va xatosi butun sahifani yiqitmasligi,
+    // o'zi qayta urina olishi kerak.
+    cashflow: build.query({
+      query: (kun = 14) => ({ url: "/cashflow", params: { kun } }),
+      providesTags: ["Finance"],
+    }),
 
     // ---- Sozlamalar ----
     settings: build.query({ query: () => "/settings", providesTags: ["Settings"] }),
@@ -152,6 +159,7 @@ export const {
   useDecideRequestMutation,
   useFinanceQuery,
   useStatsQuery,
+  useCashflowQuery,
   useSettingsQuery,
   useSaveSettingsMutation,
   useBroadcastInfoQuery,

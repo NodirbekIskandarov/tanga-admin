@@ -13,11 +13,11 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 
 | Bo'lim | Imkoniyat |
 |---|---|
-| **Umumiy holat** | Foydalanuvchilar soni va holati, konversiya, daromad, sof foyda, 30 kunlik o'sish grafigi, muddati tugayotganlar ro'yxati |
+| **Umumiy holat** | Kunlik va haftalik daromad/sarf (oldingi davr bilan farqi foizda), foydalanuvchilar soni va holati, konversiya, sof foyda, 30 kunlik o'sish grafigi, muddati tugayotganlar ro'yxati |
 | **Foydalanuvchilar** | Qidiruv, holat bo'yicha filtr, 4 xil tartiblash, sahifalash, CSV eksport |
 | **Foydalanuvchi kartasi** | Obuna berish/uzaytirish/bekor qilish, sinovni uzaytirish, bloklash, shaxsiy xabar yuborish, yozuvlari, AI sarfi, to'lovlar tarixi, hamma ma'lumotni o'chirish |
 | **Obuna so'rovlari** | Botda tarif tanlagan foydalanuvchilar navbati — bir bosishda tasdiqlash yoki rad etish, foydalanuvchiga avtomatik xabar |
-| **Moliya** | Daromad, AI tannarxi, sof foyda va marja; amal va model bo'yicha sarf; eng ko'p sarflaganlar; kunlik xarajat grafigi; to'lovlar CSV |
+| **Moliya** | Kunlik/haftalik pul oqimi (grafik va jadval ko'rinishida), daromad, AI tannarxi, sof foyda va marja; amal va model bo'yicha sarf; eng ko'p sarflaganlar; kunlik xarajat grafigi; to'lovlar CSV |
 | **Ommaviy xabar** | Segment bo'yicha (hammasi / sinov / obunachi / muddati tugagan) Telegram xabar yuborish |
 | **Amallar jurnali** | Har bir admin amali IP bilan qayd etiladi — o'chirib bo'lmaydi |
 
@@ -84,6 +84,23 @@ python manage.py kalit                         # ADMIN_SECRET_KEY yaratish
 | `USD_RATE` | Foyda hisobida dollarni so'mga o'girish kursi |
 | `SESSION_HOURS` | Sessiya muddati (standart 12 soat) |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Login qulflash chegarasi |
+
+## Ikki xil «daromad va sarf»
+
+Panelda ikkita pul oqimi bor va ular **ataylab aralashtirilmaydi**:
+
+| Blok | Manba | Ma'nosi |
+|---|---|---|
+| **Xizmat daromadi va sarfi** | `payments` va `usage_log` | Tanga'ning o'z puli: obuna to'lovlari minus AI xarajati. Egasi «daromad» deganda odatda shu |
+| **Foydalanuvchilar aylanmasi** | `transactions` (`kirim` / `chiqim`) | Odamlar botga yozgan yozuvlar hajmi. Bu Tanga'ning puli **emas** — mahsulot qanchalik ishlatilayotganini ko'rsatadi |
+
+Ikkisini bitta raqamga qo'shish panelning eng katta yolg'oni bo'lardi: bir kunlik
+aylanma 50 mln so'm bo'lishi mumkin, xizmat daromadi esa 136 000. Shu sabab ular
+alohida kartada, alohida nom bilan turadi. Qarz yozuvlari (`qarz_berdim`,
+`qarz_oldim`) aylanmaga kirmaydi — ular na daromad, na sarf.
+
+Server va domen kabi doimiy xarajatlar bazada saqlanmaydi, shuning uchun «sof
+natija» faqat AI xarajati ayirilgan holat — to'liq foyda emas.
 
 ## Muhim eslatma
 

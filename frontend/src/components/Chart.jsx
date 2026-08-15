@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Tashqi kutubxonasiz canvas grafiklari. Sabab: sahifa yengil qolsin va
 // CSP `script-src 'self'` bilan cheklanganda hech narsa buzilmasin.
@@ -69,9 +69,29 @@ function drawDates(ctx, { padL, padT, w, h }, labels, xOf) {
   });
 }
 
-/** Guruhlangan ustunlar: bir nechta seriya yonma-yon. */
-export function BarChart({ labels, series, height = 200 }) {
+/** Ustun uchi ozgina yumaloq — o'tkir burchaklar mayda ustunda qo'pol chiqadi. */
+function bar(ctx, x, y, w, h) {
+  const r = Math.min(2, w / 2, h);
+  if (h <= 0.5 || !ctx.roundRect) {
+    ctx.fillRect(x, y, w, Math.max(h, 0));
+    return;
+  }
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, [r, r, 0, 0]);
+  ctx.fill();
+}
+
+/**
+ * Guruhlangan ustunlar: bir nechta seriya yonma-yon.
+ *
+ * `format` — o'q qiymatlarini qisqartirish uchun (so'mda millionlar to'liq
+ * yozilsa o'q o'qilmay qoladi). `tip` — sichqoncha ustiga kelganda
+ * ko'rsatiladigan matn. Ikkalasi ham ixtiyoriy: berilmasa xom son chiqadi.
+ */
+export function BarChart({ labels, series, height = 200, format, tip }) {
   const ref = useRef(null);
+  const boxRef = useRef(null);
+  const [hover, setHover] = useState(null);
 
   useEffect(() => {
     function draw() {
@@ -79,27 +99,47 @@ export function BarChart({ labels, series, height = 200 }) {
       if (!canvas || !labels?.length) return;
       const { ctx, width } = prepare(canvas, height);
 
-      const box = { padL: 38, padT: 12, padB: 26, padR: 12 };
+      const box = { padL: format ? 58 : 38, padT: 12, padB: 26, padR: 12 };
       box.w = width - box.padL - box.padR;
       box.h = height - box.padT - box.padB;
+      boxRef.current = box;
 
       let max = 0;
       series.forEach((s) => s.data.forEach((v) => (max = Math.max(max, v))));
       max = niceMax(max);
 
-      drawAxis(ctx, box, labels, (t) => String(Math.round(max * t)));
+      drawAxis(ctx, box, labels, (t) =>
+        format ? format(max * t) : String(Math.round(max * t))
+      );
 
       const slot = box.w / labels.length;
-      const bw = Math.max(1.5, Math.min(9, slot / (series.length + 1)));
+      // Seriyalar orasida 2px bo'shliq: rang bilan bir qatorda O'RIN ham
+      // ajratib tursin. Rang ko'rmaydigan odam uchun yagona ishonchli
+      // farq shu — chap ustun doim daromad, o'ng ustun doim sarf.
+      const gap = series.length > 1 ? 2 : 0;
+      const span = slot * 0.66;
+      const bw = Math.max(
+        1.5,
+        Math.min(10, (span - gap * (series.length - 1)) / series.length)
+      );
+      const groupW = bw * series.length + gap * (series.length - 1);
+
       series.forEach((s, si) => {
         ctx.fillStyle = resolve(s.color);
         s.data.forEach((v, i) => {
-          const bh = (v / max) * box.h;
-          const x =
-            box.padL + slot * i + (slot - bw * series.length) / 2 + si * bw;
-          ctx.fillRect(x, box.padT + box.h - bh, bw, bh);
+          const bh = (Math.max(0, v) / max) * box.h;
+          const x = box.padL + slot * i + (slot - groupW) / 2 + si * (bw + gap);
+          bar(ctx, x, box.padT + box.h - bh, bw, bh);
         });
       });
+
+      // Ustiga kelingan kun ustunini yoritamiz.
+      if (hover != null && hover >= 0 && hover < labels.length) {
+        ctx.fillStyle = cssVar("--border", "#DDE3E9");
+        ctx.globalAlpha = 0.35;
+        ctx.fillRect(box.padL + slot * hover, box.padT, slot, box.h);
+        ctx.globalAlpha = 1;
+      }
 
       drawDates(ctx, box, labels, (i) => box.padL + slot * i + slot / 2);
     }
@@ -118,9 +158,33 @@ export function BarChart({ labels, series, height = 200 }) {
       window.removeEventListener("resize", onResize);
       watch.disconnect();
     };
-  }, [labels, series, height]);
+  }, [labels, series, height, format, hover]);
 
-  return <canvas className="chart" ref={ref} height={height} />;
+  // Nishon butun kun ustuni — mayda ustunning o'ziga tegish shart emas.
+  function onMove(event) {
+    const box = boxRef.current;
+    const canvas = ref.current;
+    if (!box || !canvas || !labels?.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left - box.padL;
+    const i = Math.floor((x / box.w) * labels.length);
+    setHover(i >= 0 && i < labels.length ? i : null);
+  }
+
+  const text = hover != null && tip ? tip(hover) : null;
+
+  return (
+    <div className="chart-wrap">
+      <canvas
+        className="chart"
+        ref={ref}
+        height={height}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+      />
+      {text && <div className="chart-tip">{text}</div>}
+    </div>
+  );
 }
 
 /** Bitta seriyali chiziq — xarajat dinamikasi uchun. */
