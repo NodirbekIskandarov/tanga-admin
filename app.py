@@ -95,9 +95,29 @@ async def security_headers(request: Request, call_next):
 # --------------------------------------------------------------------------- #
 
 def client_ip(request: Request) -> str:
+    """Haqiqiy mijoz manzili.
+
+    `X-Forwarded-For` ning BIRINCHI qiymatini olish mumkin emas. Caddy bu
+    sarlavhani almashtirmaydi — oxiriga qo'shadi. Ya'ni mijoz o'zi
+    `X-Forwarded-For: 1.2.3.4` yuborsa, Caddy uni
+    `1.2.3.4, <haqiqiy-ip>` ga aylantiradi va birinchi qiymat hujumchi
+    yozgan matn bo'ladi.
+
+    Bu shunchaki noto'g'ri jurnal emas: `auth.py` kirish xatosida
+    «KIRISH XATO: <ip>» deb yozadi va serverdagi `panel-admin` fail2ban
+    jail'i aynan shu qatorni o'qiydi. Soxta qiymat bilan hujumchi
+    istalgan manzilni — shu jumladan egasinikini — bloklatib yuborishi
+    mumkin edi. Audit jurnaliga ham soxta IP tushardi.
+
+    Bitta ishonchli proksi (Caddy) bor, shuning uchun kerakli qiymat —
+    ro'yxatning OXIRGISI: uni proksining o'zi qo'ygan.
+    """
     fwd = request.headers.get("x-forwarded-for", "")
-    return fwd.split(",")[0].strip() if fwd else (
-        request.client.host if request.client else "")
+    if fwd:
+        parts = [p.strip() for p in fwd.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else ""
 
 
 def current_admin(request: Request) -> dict:
