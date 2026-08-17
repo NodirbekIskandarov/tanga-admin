@@ -318,23 +318,14 @@ def api_user(user_id: int, session: dict = Depends(current_admin)):
     return {"user": user, "plans": _plans()}
 
 
-@app.get("/api/users/{user_id}/transactions")
-def api_user_transactions(request: Request, user_id: int,
-                          session: dict = Depends(current_admin)):
-    """Foydalanuvchi yozuvlari IZOHLARI bilan.
-
-    Izohlar shaxsiy ma'lumot, shuning uchun ular foydalanuvchi kartasi
-    bilan birga yuklanmaydi — alohida so'raladi va har bir so'rov
-    jurnalga yoziladi: kim, qachon, kimning yozuvlarini ochgani
-    ko'rinib tursin.
-    """
-    if not store.get_user(user_id, OWNER_IDS):
-        raise HTTPException(404, "Foydalanuvchi topilmadi")
-    rows = store.user_transactions(user_id)
-    store.log_action(session["u"], "yozuvlarni ko'rdi", target=str(user_id),
-                     details=f"{len(rows)} ta yozuv izohi bilan",
-                     ip=client_ip(request))
-    return {"items": rows}
+# `/api/users/{id}/transactions` OLIB TASHLANDI.
+#
+# U foydalanuvchining summalari, kategoriyalari va izohlarini
+# qaytarardi. Har chaqiruv jurnalga tushardi, lekin jurnal ko'rib
+# bo'lgandan keyingi iz — ruxsat emas. Bu ma'lumot egasidan boshqa
+# hech kimga tegishli emas, shuning uchun endi u alohida shifrlangan
+# bazada va bu ilovada uning kaliti yo'q. Endpointni qaytarish
+# yetarli bo'lmaydi: kalitsiz jadval ochilmaydi.
 
 
 class UserAction(BaseModel):
@@ -397,7 +388,13 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
         stats = store.delete_user_data(user_id)
         store.log_action(admin, "MA'LUMOT O'CHIRILDI", user_id,
                          f"{stats['transactions']} yozuv, {stats['usage']} sarf", ip)
-        return {"message": "Ma'lumot o'chirildi.", "deleted": True}
+        # Moliyaviy yozuvlarni panel o'zi o'chira olmaydi — shaxsiy
+        # bazaning kaliti unda yo'q. U navbatga qo'yildi, botning
+        # vazifasi 10 daqiqa ichida bajaradi.
+        return {"message": "Ma'lumot o'chirildi. Moliyaviy yozuvlar "
+                           "shifrlangan bazada — ularni bot 10 daqiqa "
+                           "ichida o'chiradi.",
+                "deleted": True}
 
     raise HTTPException(400, "Noma'lum amal.")
 

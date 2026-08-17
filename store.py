@@ -19,6 +19,27 @@ import settings
 # --------------------------------------------------------------------------- #
 
 ADMIN_SCHEMA = """
+-- Kunlik yozuvlar SONI va o'chirish navbati. Ikkalasini ham odatda bot
+-- yaratadi (db.py dagi SCHEMA ga qarang), lekin panel botdan oldin
+-- ishga tushishi mumkin — shuning uchun bu yerda ham bor. Ikkalasida
+-- ham ta'rif AYNAN bir xil bo'lishi shart.
+--
+-- Diqqat: bu jadvalda faqat SON bor. Foydalanuvchining summasi,
+-- kategoriyasi va izohi shaxsiy bazada va bu ilovada uning kaliti yo'q.
+CREATE TABLE IF NOT EXISTS entry_counts (
+    user_id INTEGER NOT NULL,
+    day     TEXT    NOT NULL,
+    n       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_day ON entry_counts(day);
+
+CREATE TABLE IF NOT EXISTS private_erase_queue (
+    user_id  INTEGER PRIMARY KEY,
+    asked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    done_at  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS admin_users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
@@ -362,7 +383,7 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
     with conn() as c:
         rows = [dict(r) for r in c.execute(sql, params).fetchall()]
         counts = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM transactions GROUP BY user_id").fetchall())
+            "SELECT user_id, SUM(n) FROM entry_counts GROUP BY user_id").fetchall())
         costs = dict(c.execute(
             "SELECT user_id, ROUND(SUM(cost_usd), 4) FROM usage_log GROUP BY user_id"
         ).fetchall())
@@ -421,20 +442,15 @@ def activity_counts(owner_ids: set[int] | None = None) -> dict:
     }
 
 
-def user_transactions(user_id: int, limit: int = 50) -> list[dict]:
-    """Izohlari bilan to'liq ro'yxat — ATAYLAB alohida funksiya.
-
-    Foydalanuvchining izohlari shaxsiy ma'lumot, shuning uchun ular
-    foydalanuvchi kartasi bilan birga avtomatik yuklanmaydi. Adminning
-    ularni ko'rishi ongli harakat bo'lishi va jurnalda iz qoldirishi
-    kerak — chaqiruvchi log_action() ni ham chaqiradi.
-    """
-    with conn() as c:
-        return [dict(r) for r in c.execute(
-            """SELECT id, occurred_on, kind, amount, currency, category, note
-               FROM transactions WHERE user_id = ?
-               ORDER BY occurred_on DESC, id DESC LIMIT ?""",
-            (user_id, limit)).fetchall()]
+# Yozuvlarni o'qiydigan funksiya bu yerda ATAYLAB YO'Q.
+#
+# Ilgari `user_transactions()` bor edi: u summa, kategoriya va izohni
+# qaytarardi, har chaqiruv jurnalga tushardi. Lekin jurnal — bu ko'rib
+# bo'lgandan KEYINGI iz, ruxsat emas. Foydalanuvchining moliyasi
+# egasidan boshqa hech kimga tegishli emas, shuning uchun himoya endi
+# kodda emas, bazada: yozuvlar alohida faylda, alohida kalit bilan
+# turadi va bu panelda o'sha kalit yo'q. `FROM transactions` deb yozsak
+# ham "no such table" xatosi chiqadi — bu xato emas, mo'ljal.
 
 
 def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
@@ -446,20 +462,18 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
         u = dict(row)
         u["state"] = access_state(row, owner_ids)
         u["days_left"] = days_left(row)
+        # Faqat SON. Yozuvlarning o'zi shaxsiy bazada va bu panel uni
+        # ocholmaydi. Son esa moliyaviy mazmun emas: «340 ta yozuv»
+        # odamning nimaga pul sarflaganini aytmaydi, lekin obuna va
+        # limit haqida qaror qabul qilish uchun yetadi.
         u["tx_count"] = int(c.execute(
-            "SELECT COUNT(*) FROM transactions WHERE user_id = ?", (user_id,)).fetchone()[0])
+            "SELECT COALESCE(SUM(n), 0) FROM entry_counts WHERE user_id = ?",
+            (user_id,)).fetchone()[0])
         u["usage"] = [dict(r) for r in c.execute(
             """SELECT operation, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS cost
                FROM usage_log WHERE user_id = ? GROUP BY operation ORDER BY cost DESC""",
             (user_id,)).fetchall()]
         u["cost_usd"] = round(sum(x["cost"] or 0 for x in u["usage"]), 4)
-        # Yozuvlar ro'yxati ATAYLAB olinmaydi — na summa, na kategoriya,
-        # na izoh. Kategoriya va summaning o'zi ham shaxsiy moliya:
-        # «6 800 760 — oylik», «62 556 — oziq-ovqat» odam haqida ko'p
-        # narsa aytadi. Adminning kundalik ishi (obuna, to'lov, limit)
-        # uchun yozuvlar SONI yetarli; ro'yxatning o'zi alohida so'rov
-        # bilan olinadi va o'sha so'rov jurnalga yoziladi —
-        # user_transactions() ga qarang.
         u["payments"] = [dict(r) for r in c.execute(
             "SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT 10",
             (user_id,)).fetchall()]
@@ -543,13 +557,27 @@ def set_blocked(user_id: int, blocked: bool) -> None:
 
 
 def delete_user_data(user_id: int) -> dict:
-    """Foydalanuvchining butun izini o'chiradi. Qaytarib bo'lmaydi."""
+    """Foydalanuvchining butun izini o'chiradi. Qaytarib bo'lmaydi.
+
+    Moliyaviy yozuvlar shaxsiy bazada va bu panel ularga yeta olmaydi —
+    kaliti yo'q. Shuning uchun ular navbatga qo'yiladi va botning
+    vazifasi (har 10 daqiqada) o'chiradi. Panel darrov o'chira olmasligi
+    kamchilik emas: aynan shu narsa "panel yozuvlarga tega olmaydi"
+    degan kafolatning boshqa tomoni.
+    """
     with conn() as c:
-        tx = c.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,)).rowcount
+        tx = int(c.execute(
+            "SELECT COALESCE(SUM(n), 0) FROM entry_counts WHERE user_id = ?",
+            (user_id,)).fetchone()[0])
         us = c.execute("DELETE FROM usage_log WHERE user_id = ?", (user_id,)).rowcount
         c.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-    return {"transactions": tx, "usage": us}
+        c.execute("DELETE FROM entry_counts WHERE user_id = ?", (user_id,))
+        c.execute(
+            "INSERT INTO private_erase_queue (user_id) VALUES (?) "
+            "ON CONFLICT(user_id) DO UPDATE SET done_at = NULL",
+            (user_id,))
+    return {"transactions": tx, "usage": us, "shaxsiy_navbatda": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -584,7 +612,7 @@ def list_requests(status: str = "", limit: int = 100) -> list:
         # Chekni ko'rayotgan admin uchun kontekst: bu odam ilgari to'laganmi
         # va botdan qanchalik foydalanadi. Ikkalasi ham qaror uchun muhim.
         counts = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM transactions GROUP BY user_id").fetchall())
+            "SELECT user_id, SUM(n) FROM entry_counts GROUP BY user_id").fetchall())
         paid = dict(c.execute(
             "SELECT user_id, COUNT(*) FROM payments GROUP BY user_id").fetchall())
         rejected = dict(c.execute(
@@ -806,9 +834,10 @@ def overview(owner_ids: set[int]) -> dict:
     now = datetime.now(settings.TZ)
     with conn() as c:
         users = [dict(r) for r in c.execute("SELECT * FROM users").fetchall()]
-        tx_total = int(c.execute("SELECT COUNT(*) FROM transactions").fetchone()[0])
+        tx_total = int(c.execute(
+            "SELECT COALESCE(SUM(n), 0) FROM entry_counts").fetchone()[0])
         tx_today = int(c.execute(
-            "SELECT COUNT(*) FROM transactions WHERE occurred_on = ?",
+            "SELECT COALESCE(SUM(n), 0) FROM entry_counts WHERE day = ?",
             (today().isoformat(),)).fetchone()[0])
         cost_all = float(c.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log").fetchone()[0])
@@ -863,8 +892,8 @@ def daily_series(days: int = 30) -> dict:
                 "WHERE substr(created_at,1,10) >= ? GROUP BY d", (start.isoformat(),)):
             users[r["d"]] = r["n"]
         for r in c.execute(
-                "SELECT occurred_on d, COUNT(*) n FROM transactions "
-                "WHERE occurred_on >= ? GROUP BY d", (start.isoformat(),)):
+                "SELECT day d, SUM(n) n FROM entry_counts "
+                "WHERE day >= ? GROUP BY d", (start.isoformat(),)):
             txs[r["d"]] = r["n"]
         for r in c.execute(
                 "SELECT day d, ROUND(SUM(cost_usd),4) s FROM usage_log "

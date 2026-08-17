@@ -2,9 +2,7 @@ import Fresh from "../components/Fresh";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import {
-  useLazyUserTransactionsQuery, useUserActionMutation, useUserQuery,
-} from "../store/api";
+import { useUserActionMutation, useUserQuery } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import {
   Av, Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
@@ -15,11 +13,7 @@ export default function UserDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  // Izohlar alohida so'raladi — shu bosish serverda jurnalga tushadi.
   const [msgOpen, setMsgOpen] = useState(false);
-  const [loadNotes, { data: notesData, isFetching: notesLoading }] =
-    useLazyUserTransactionsQuery();
-  const notes = notesData?.items || null;
   const { data, isLoading, isFetching, error, refetch, fulfilledTimeStamp } =
     useUserQuery(id, { pollingInterval: 25000 });
   const [act, { isLoading: acting }] = useUserActionMutation();
@@ -169,69 +163,26 @@ export default function UserDetail() {
             </div>
           </Card>
 
-          <Card
-            title="Yozuvlari"
-            action={
-              notes ? (
-                <span className="muted" style={{ fontSize: 12 }}>
-                  ochildi · jurnalga yozildi
-                </span>
-              ) : (
-                <button
-                  className="btn sm"
-                  disabled={notesLoading || u.tx_count === 0}
-                  onClick={() => loadNotes(id)}
-                >
-                  {notesLoading ? "Yuklanmoqda…" : "Ochib ko'rish"}
-                </button>
-              )
-            }
-          >
-            {!notes ? (
-              /* Yozuvlar YOPIQ turadi: sana, kategoriya va summaning
-                 o'zi ham shaxsiy moliya. Kundalik ish uchun soni
-                 yetarli — ro'yxatni ochish ongli harakat bo'lsin. */
-              <div className="pad">
-                <p style={{ margin: "0 0 6px", fontSize: 15 }}>
-                  <b>{u.tx_count}</b> ta yozuv
-                </p>
-                <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                  {u.tx_count === 0
-                    ? "Foydalanuvchi hali hech narsa yozmagan."
-                    : "Yozuvlar foydalanuvchining shaxsiy moliyasi — sana, " +
-                      "kategoriya va summa ham shunga kiradi. Ro'yxatni " +
-                      "ochsangiz, bu jurnalga yoziladi."}
-                </p>
-              </div>
-            ) : (
-              <div className="tbl-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Sana</th>
-                      <th>Turi</th>
-                      <th>Kategoriya</th>
-                      <th>Izoh</th>
-                      <th className="num">Summa</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {notes.length === 0 && <Empty colSpan={5}>Yozuv yo'q.</Empty>}
-                    {notes.map((t) => (
-                      <tr key={t.id}>
-                        <td className="mono nowrap">{t.occurred_on}</td>
-                        <td>{t.kind}</td>
-                        <td>{t.category}</td>
-                        <td className="muted">{(t.note || "").slice(0, 48)}</td>
-                        <td className="num">
-                          {t.currency === "usd" ? usd(t.amount) : som(t.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          {/* Yozuvlarni ko'rish imkoniyati ATAYLAB yo'q. Ilgari bu yerda
+              «Ochib ko'rish» tugmasi bor edi va u summa, kategoriya,
+              izohni ko'rsatardi. Endi yozuvlar alohida shifrlangan
+              bazada, kaliti esa faqat botda — panel ularni so'rasa ham
+              ololmaydi. Faqat SON qoladi: u moliyaviy mazmun emas,
+              lekin obuna va limit haqida qaror qabul qilishga yetadi. */}
+          <Card title="Yozuvlari">
+            <div className="pad">
+              <p style={{ margin: "0 0 6px", fontSize: 15 }}>
+                <b>{u.tx_count}</b> ta yozuv
+              </p>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                {u.tx_count === 0
+                  ? "Foydalanuvchi hali hech narsa yozmagan."
+                  : "🔒 Yozuvlarning mazmuni — summa, kategoriya va izoh — " +
+                    "alohida shifrlangan bazada saqlanadi va bu panelda " +
+                    "uning kaliti yo'q. Ularni faqat foydalanuvchining " +
+                    "o'zi botda ko'ra oladi."}
+              </p>
+            </div>
           </Card>
 
           <Card

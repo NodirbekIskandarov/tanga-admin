@@ -71,13 +71,8 @@ export const api = createApi({
       query: (id) => `/users/${id}`,
       providesTags: (r, e, id) => [{ type: "User", id }],
     }),
-    // Izohlar shaxsiy ma'lumot: ular kartaga avtomatik yuklanmaydi va
-    // faqat admin ataylab so'raganda olinadi. Har bir so'rov serverda
-    // jurnalga yoziladi, shuning uchun keshlanmaydi ham.
-    userTransactions: build.query({
-      query: (id) => `/users/${id}/transactions`,
-      keepUnusedDataFor: 0,
-    }),
+    // `userTransactions` OLIB TASHLANDI: foydalanuvchining yozuvlari
+    // alohida shifrlangan bazada va serverda uning kaliti yo'q.
     userAction: build.mutation({
       query: ({ id, ...body }) => ({
         url: `/users/${id}/action`,
@@ -157,7 +152,6 @@ export const {
   useDashboardQuery,
   useUsersQuery,
   useUserQuery,
-  useLazyUserTransactionsQuery,
   useUserActionMutation,
   useRequestsQuery,
   useDecideRequestMutation,
