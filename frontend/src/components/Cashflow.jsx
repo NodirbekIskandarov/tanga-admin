@@ -254,7 +254,11 @@ function Block({ title, period, flow, series, values, view, chart, hint,
   );
 }
 
-export default function Cashflow({ full = false }) {
+// `full` bayrog'i ilgari ikkinchi blokni (foydalanuvchilar aylanmasi)
+// to'liq grafik bilan chizish uchun kerak edi. O'sha blok olib
+// tashlangach kerak emas — qabul qilinadi va e'tiborga olinmaydi,
+// shunda chaqiruvchilarni o'zgartirish shart bo'lmaydi.
+export default function Cashflow() {
   const dispatch = useDispatch();
   const period = useSelector((s) => s.ui.cashflowPeriod);
   const points = useSelector((s) => s.ui.cashflowPoints[s.ui.cashflowPeriod]);
@@ -332,37 +336,13 @@ export default function Cashflow({ full = false }) {
         }
       />
 
-      <Block
-        title="Foydalanuvchilar aylanmasi"
-        period={data.period}
-        flow={data.users}
-        series={data.series}
-        values={data.series.users}
-        view={view}
-        chart={full}
-        inLabel="Kirim"
-        outLabel="Chiqim"
-        netLabel="Farqi"
-        empty={{
-          title: "Yozuv yo'q",
-          text: "Bu oynada foydalanuvchilar birorta kirim yoki chiqim yozmagan.",
-        }}
-        hint={
-          <>
-            Bu <b>Tanga'ning puli emas</b> — foydalanuvchilar botga yozgan
-            yozuvlar yig'indisi, ya'ni mahsulot qanchalik ishlatilayotgani.
-            Qarz yozuvlari hisobga olinmaydi. Valyutali yozuvlar o'sha kundagi
-            kurs bilan so'mga o'girilgan.
-            {data.noBaseCount > 0 && (
-              <>
-                {" "}
-                <b>{data.noBaseCount} ta</b> eski yozuvning kursi noma'lum —
-                ular nominal qiymatida sanalgan.
-              </>
-            )}
-          </>
-        }
-      />
+      {/* «Foydalanuvchilar aylanmasi» bloki OLIB TASHLANDI.
+          U odamlarning kirim/chiqim yig'indisini ko'rsatardi. Yig'indi
+          shaxssizdek tuyuladi, lekin unday emas: xizmatda o'n besh
+          chog'li odam bor va biror kuni bittasigina yozgan bo'lsa,
+          o'sha kunning «umumiy chiqimi» aynan o'sha odamnikidir.
+          Mahsulot qanchalik ishlatilayotgani yozuvlar SONI bilan
+          ko'rinadi — buning uchun summani bilish shart emas. */}
     </>
   );
 }

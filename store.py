@@ -1096,11 +1096,17 @@ def _buckets(period: str, points: int, end: date) -> list[tuple[date, date, bool
     return [(s, min(e, end), e > end) for s, e in spans]
 
 
-def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict, dict, dict, int]:
-    """[lo; hi] oynasidagi to'rt qator summa, `group` bergan kesimda.
+def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict]:
+    """[lo; hi] oynasidagi ikki qator summa, `group` bergan kesimda.
 
-    Qaytadi: to'lovlar, AI sarfi (so'mda), foydalanuvchi kirimi va chiqimi,
-    hamda kursi noma'lum yozuvlar soni.
+    Qaytadi: to'lovlar va AI sarfi (so'mda) — ya'ni XIZMATNING o'z puli.
+
+    Ilgari bu yerda foydalanuvchilarning kirim/chiqim yig'indisi ham bor
+    edi. U olib tashlandi. Yig'indi "shaxssiz" ko'rinadi, lekin unday
+    emas: xizmatda o'n besh chog'li odam bor va biror kuni bittasigina
+    yozgan bo'lsa, o'sha kunning "umumiy chiqimi" aynan o'sha odamning
+    chiqimi bo'ladi. Bundan tashqari endi buni hisoblab ham bo'lmaydi —
+    yozuvlar alohida shifrlangan bazada va bu ilovada kalit yo'q.
     """
     # `payments.created_at` — mintaqali mahalliy ISO ('…T14:30:00+05:00'),
     # shuning uchun birinchi 10 belgi to'g'ridan-to'g'ri mahalliy sana.
@@ -1113,31 +1119,8 @@ def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict, dict, dict, int]:
         f"SELECT {group('day')} k, COALESCE(SUM(cost_usd), 0) s FROM usage_log "
         "WHERE day BETWEEN ? AND ? GROUP BY k", (lo, hi))
 
-    # `amount_base` — yozuv kunidagi kurs bilan so'mga o'girilgan qiymat.
-    # Ustun bot migratsiyasi bilan qo'shilgan; eski bazada bo'lmasligi
-    # mumkin, shuning uchun mavjudligi tekshiriladi (admin bot jadvalini
-    # O'ZGARTIRMAYDI).
-    has_base = _has_column(c, "transactions", "amount_base")
-    amount_som = "COALESCE(amount_base, amount)" if has_base else "amount"
-    missing = "SUM(amount_base IS NULL)" if has_base else "0"
-    user_in: dict[str, float] = {}
-    user_out: dict[str, float] = {}
-    no_base = 0
-    for r in c.execute(
-            f"""SELECT {group('occurred_on')} k, kind, COALESCE(SUM({amount_som}), 0) s,
-                       {missing} nobase
-                FROM transactions
-                WHERE occurred_on BETWEEN ? AND ? AND kind IN (?, ?)
-                GROUP BY k, kind""",
-            (lo, hi, KIND_KIRIM, KIND_CHIQIM)).fetchall():
-        if r["k"] is None:          # sanasi buzuq yozuv — davrga tushmaydi
-            continue
-        bucket = user_in if r["kind"] == KIND_KIRIM else user_out
-        bucket[str(r["k"])] = float(r["s"] or 0)
-        no_base += int(r["nobase"] or 0)
-
     ai_som = {k: v * settings.USD_RATE for k, v in ai_usd.items()}
-    return pay, ai_som, user_in, user_out, no_base
+    return pay, ai_som
 
 
 def cashflow(period: str = "kun", points: int = 0) -> dict:
@@ -1166,7 +1149,7 @@ def cashflow(period: str = "kun", points: int = 0) -> dict:
 
     with conn() as c:
         # Grafik: tanlangan davr kesimida guruhlangan.
-        pay, ai_som, user_in, user_out, no_base = _collect(
+        pay, ai_som = _collect(
             c, _group(period), chart[0][0].isoformat(), end.isoformat())
 
         # Ko'rsatkichlar kunlik aniqlikni talab qiladi: joriy oyning 1–15
@@ -1175,9 +1158,9 @@ def cashflow(period: str = "kun", points: int = 0) -> dict:
         # ko'pi ikki oy. Kunlik kesimda esa grafikning o'zi kunlik, shuning
         # uchun ikkinchi so'rov shart emas.
         if period == "kun":
-            day_pay, day_ai, day_in, day_out = pay, ai_som, user_in, user_out
+            day_pay, day_ai = pay, ai_som
         else:
-            day_pay, day_ai, day_in, day_out, _ = _collect(
+            day_pay, day_ai = _collect(
                 c, lambda col: col, prev[0].isoformat(), end.isoformat())
 
     def line(values: dict[str, float]) -> list[int]:
@@ -1185,24 +1168,21 @@ def cashflow(period: str = "kun", points: int = 0) -> dict:
         # aks holda grafik bo'sh davrlarni siqib, o'sish bordek ko'rsatardi.
         return [round(values.get(k, 0.0)) for k in labels]
 
+    # `users` bo'limi ATAYLAB yo'q: u foydalanuvchilarning kirim/chiqim
+    # yig'indisi edi. Izoh _collect() da.
     return {
         "period": period,
         "points": points,
         "today": end.isoformat(),
         "usd_rate": settings.USD_RATE,
         "service": _flow(day_pay, day_ai, span, prev),
-        "users": _flow(day_in, day_out, span, prev),
         "series": {
             "labels": labels,
             "ends": [e.isoformat() for _, e, _ in chart],
             # Oxirgi davr odatda hali tugamagan — jadval buni ochiq aytadi.
             "partial": [unfinished for _, _, unfinished in chart],
             "service": {"revenue": line(pay), "expense": line(ai_som)},
-            "users": {"revenue": line(user_in), "expense": line(user_out)},
         },
-        # Kursi noma'lum eski valyutali yozuvlar soni. Noldan katta bo'lsa
-        # aylanma biroz kam ko'rsatiladi — interfeys buni ochiq aytadi.
-        "noBaseCount": no_base,
     }
 
 
