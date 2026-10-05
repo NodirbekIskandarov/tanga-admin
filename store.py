@@ -486,17 +486,47 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
     return u
 
 
+def reachable(row: dict) -> bool:
+    """Ommaviy xabar olishi mumkinmi — botdagi `/xabar_yubor` qoidasi bilan
+    bir xil: admin bloklamagan, odam botni bloklamagan (Telegram 403) va
+    shartlarga rozilik bergan.
+
+    Ilgari panel «hammasi» segmentiga bloklanganlarga, botni
+    bloklaganlarga va rozilik bermaganlarga ham yuborardi. Rozilik
+    bermagan odamga xabar yuborish — uning ma'lumotini roziliksiz
+    ishlatish degani.
+    """
+    return (not row.get("blocked")
+            and not row.get("bot_blocked_at")
+            and bool(row.get("consent_at")))
+
+
 def all_user_ids(state: str = "", owner_ids: set[int] | None = None,
                  lang: str = "") -> list[int]:
-    """Ommaviy xabar uchun qabul qiluvchilar.
+    """Ommaviy xabar uchun qabul qiluvchilar (faqat `reachable`).
 
     `lang` berilsa faqat o'sha tilni tanlagan odamlar qoladi — xabar
     o'zbekcha yozilgan bo'lsa ruschani tanlaganga yuborishdan ma'no yo'q.
+    Egalar kirmaydi — botdagi /xabar_yubor dagidek.
     """
+    owner_ids = owner_ids or set()
     rows, _ = list_users(state=state, owner_ids=owner_ids, limit=10**9)
+    rows = [r for r in rows if reachable(r) and r["user_id"] not in owner_ids]
     if lang:
         rows = [r for r in rows if (r.get("lang") or "uz") == lang]
     return [r["user_id"] for r in rows]
+
+
+def mark_bot_blocked(user_ids: list[int]) -> None:
+    """Telegram 403 bergan odamlar — bot ham ularga avtomatik yozmaydi.
+    Odam botga yana yozsa bot belgini o'zi olib tashlaydi."""
+    if not user_ids:
+        return
+    with conn() as c:
+        if not _has_column(c, "users", "bot_blocked_at"):
+            return
+        c.executemany("UPDATE users SET bot_blocked_at = ? WHERE user_id = ?",
+                      [(now_iso(), uid) for uid in user_ids])
 
 
 def lang_counts(owner_ids: set[int] | None = None) -> dict[str, int]:
@@ -508,24 +538,38 @@ def lang_counts(owner_ids: set[int] | None = None) -> dict[str, int]:
     return counts
 
 
+def _extend_subscription(c, user_id: int, days: int) -> datetime:
+    """Obunani ochiq ulanish ichida uzaytiradi (tranzaksiya chaqiruvchida).
+
+    `warned_stage` nolga qaytariladi: yangi muddat uchun «3 kun / 1 kun
+    qoldi» ogohlantirishlari qaytadan yuborilishi kerak. Ilgari u eski
+    qiymatda qolardi va bot ikkinchi obunada ogohlantirishni «allaqachon
+    yuborilgan» deb o'tkazib yuborardi. Bot ham xuddi shunday qiladi
+    (db.grant_subscription).
+    """
+    now = datetime.now(settings.TZ)
+    row = c.execute("SELECT subscribed_until FROM users WHERE user_id = ?",
+                    (user_id,)).fetchone()
+    base = now
+    if row:
+        cur = _parse(row["subscribed_until"])
+        if cur and cur > now:
+            base = cur
+    until = base + timedelta(days=days)
+    c.execute(
+        """INSERT INTO users (user_id, subscribed_until) VALUES (?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET subscribed_until = excluded.subscribed_until""",
+        (user_id, until.isoformat(timespec="seconds")),
+    )
+    if _has_column(c, "users", "warned_stage"):
+        c.execute("UPDATE users SET warned_stage = 0 WHERE user_id = ?", (user_id,))
+    return until
+
+
 def grant_subscription(user_id: int, days: int) -> datetime:
     """Obunani uzaytiradi — mavjud muddat ustiga qo'shiladi (bot bilan bir xil)."""
-    now = datetime.now(settings.TZ)
     with conn() as c:
-        row = c.execute("SELECT subscribed_until FROM users WHERE user_id = ?",
-                        (user_id,)).fetchone()
-        base = now
-        if row:
-            cur = _parse(row["subscribed_until"])
-            if cur and cur > now:
-                base = cur
-        until = base + timedelta(days=days)
-        c.execute(
-            """INSERT INTO users (user_id, subscribed_until) VALUES (?, ?)
-               ON CONFLICT(user_id) DO UPDATE SET subscribed_until = excluded.subscribed_until""",
-            (user_id, until.isoformat(timespec="seconds")),
-        )
-    return until
+        return _extend_subscription(c, user_id, days)
 
 
 def set_subscription_until(user_id: int, until: datetime | None) -> None:
@@ -573,6 +617,11 @@ def delete_user_data(user_id: int) -> dict:
         c.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM entry_counts WHERE user_id = ?", (user_id,))
+        # Hodisalar (start, paywall, ...) ham iz — botdagi erase_user ularni
+        # o'chiradi. Jadvalni bot yaratadi, shuning uchun bor-yo'qligi
+        # tekshiriladi.
+        if _has_table(c, "events"):
+            c.execute("DELETE FROM events WHERE user_id = ?", (user_id,))
         c.execute(
             "INSERT INTO private_erase_queue (user_id) VALUES (?) "
             "ON CONFLICT(user_id) DO UPDATE SET done_at = NULL",
@@ -657,13 +706,54 @@ def get_request(req_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-def decide_request(req_id: int, status: str, admin: str, note: str = "") -> None:
+_OPEN = "status IN ('kutilmoqda', 'tekshiruvda')"
+
+
+def decide_request(req_id: int, status: str, admin: str, note: str = "") -> bool:
+    """So'rov holatini yozadi — faqat hali HAL QILINMAGAN bo'lsa.
+
+    Qaytaradi: yozildimi. False — so'rovni boshqa admin (yoki ikkinchi
+    tab) allaqachon hal qilgan.
+    """
     with conn() as c:
-        c.execute(
-            """UPDATE subscription_requests
-               SET status = ?, decided_at = ?, decided_by = ?, note = ?
-               WHERE id = ?""",
+        cur = c.execute(
+            f"""UPDATE subscription_requests
+                SET status = ?, decided_at = ?, decided_by = ?, note = ?
+                WHERE id = ? AND {_OPEN}""",
             (status, now_iso(), admin, note, req_id))
+        return cur.rowcount > 0
+
+
+def approve_request(req_id: int, plan: dict, admin: str) -> tuple[int, datetime] | None:
+    """So'rovni tasdiqlaydi: holat, obuna va to'lov BITTA tranzaksiyada.
+
+    Ilgari uch qadam alohida edi va holat tekshiruvi yozishdan oldin
+    bo'lardi — ikki admin (yoki ikki tab) bir vaqtda bossa, ikkalasi ham
+    tekshiruvdan o'tib, obuna ham, to'lov ham ikki marta yozilardi.
+    Endi birinchi qadam — shartli UPDATE: uni faqat bitta so'rov yuta
+    oladi, qolganlari None oladi.
+
+    Qaytaradi: (user_id, yangi muddat) yoki None (allaqachon hal qilingan).
+    """
+    with conn() as c:
+        cur = c.execute(
+            f"""UPDATE subscription_requests
+                SET status = 'tasdiqlandi', decided_at = ?, decided_by = ?, note = ''
+                WHERE id = ? AND {_OPEN}""",
+            (now_iso(), admin, req_id))
+        if cur.rowcount == 0:
+            return None
+        user_id = int(c.execute(
+            "SELECT user_id FROM subscription_requests WHERE id = ?",
+            (req_id,)).fetchone()[0])
+        until = _extend_subscription(c, user_id, plan["days"])
+        c.execute(
+            """INSERT INTO payments
+               (user_id, plan_code, amount, days, method, created_by, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (user_id, plan["code"], plan["price"], plan["days"], "qolda", admin,
+             now_iso()))
+    return user_id, until
 
 
 def add_payment(user_id: int, plan_code: str, amount: int, days: int,
@@ -977,6 +1067,11 @@ POINTS = {"kun": (14, 7, 90), "hafta": (8, 4, 26), "oy": (6, 3, 24)}
 
 def _has_column(c, table: str, column: str) -> bool:
     return any(r[1] == column for r in c.execute(f"PRAGMA table_info({table})"))
+
+
+def _has_table(c, table: str) -> bool:
+    return c.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                     (table,)).fetchone() is not None
 
 
 def _by_key(c, sql: str, params: tuple) -> dict[str, float]:

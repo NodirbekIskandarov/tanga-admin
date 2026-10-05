@@ -21,9 +21,15 @@ API = "https://api.telegram.org/bot{token}/{method}"
 SEND_DELAY = 0.06
 
 
-async def send_message(user_id: int, text: str, parse_mode: str = "HTML") -> tuple[bool, str]:
+async def send(user_id: int, text: str, parse_mode: str = "HTML") -> tuple[bool, str, int]:
+    """Xabar yuboradi. Qaytaradi: (yetdimi, izoh, Telegram xato kodi).
+
+    Kod 403 — odam botni bloklagan. Chaqiruvchi uni bazada belgilaydi
+    (`store.mark_bot_blocked`), shunda bot ham, panel ham unga qayta
+    urinmaydi — botdagi notify.send bilan bir xil qoida.
+    """
     if not settings.TELEGRAM_TOKEN:
-        return False, "TELEGRAM_TOKEN sozlanmagan"
+        return False, "TELEGRAM_TOKEN sozlanmagan", 0
     url = API.format(token=settings.TELEGRAM_TOKEN, method="sendMessage")
     payload = {"chat_id": user_id, "text": text, "parse_mode": parse_mode,
                "disable_web_page_preview": True}
@@ -32,11 +38,17 @@ async def send_message(user_id: int, text: str, parse_mode: str = "HTML") -> tup
             r = await client.post(url, json=payload)
         data = r.json()
         if data.get("ok"):
-            return True, "yuborildi"
-        return False, str(data.get("description", "noma'lum xato"))
+            return True, "yuborildi", 0
+        return (False, str(data.get("description", "noma'lum xato")),
+                int(data.get("error_code") or 0))
     except Exception as exc:                      # tarmoq uzilishi va h.k.
         log.warning("Xabar yuborilmadi (%s): %s", user_id, exc)
-        return False, str(exc)
+        return False, str(exc), 0
+
+
+async def send_message(user_id: int, text: str, parse_mode: str = "HTML") -> tuple[bool, str]:
+    ok, info, _ = await send(user_id, text, parse_mode)
+    return ok, info
 
 
 async def fetch_file(file_id: str) -> tuple[bytes, str] | None:
@@ -73,14 +85,17 @@ async def fetch_file(file_id: str) -> tuple[bytes, str] | None:
 
 async def broadcast(user_ids: list[int], text: str) -> dict:
     """Ketma-ket yuboradi va natijani sanaydi. Bloklagan foydalanuvchilar
-    xatoga sabab bo'ladi — ular alohida sanaladi, jarayon to'xtamaydi."""
-    ok, failed, errors = 0, 0, {}
+    xatoga sabab bo'ladi — ular alohida sanaladi (`blocked_ids`),
+    jarayon to'xtamaydi."""
+    ok, failed, errors, blocked = 0, 0, {}, []
     for uid in user_ids:
-        success, msg = await send_message(uid, text)
+        success, msg, code = await send(uid, text)
         if success:
             ok += 1
         else:
             failed += 1
             errors[msg] = errors.get(msg, 0) + 1
+            if code == 403:
+                blocked.append(uid)
         await asyncio.sleep(SEND_DELAY)
-    return {"ok": ok, "failed": failed, "errors": errors}
+    return {"ok": ok, "failed": failed, "errors": errors, "blocked_ids": blocked}

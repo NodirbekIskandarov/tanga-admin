@@ -10,6 +10,7 @@ Ishga tushirish:  uvicorn app:app --host 127.0.0.1 --port 8100
 from __future__ import annotations
 
 import csv
+import html
 import io
 import logging
 import mimetypes
@@ -378,8 +379,10 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
         text = body.matn.strip()
         if not text:
             raise HTTPException(400, "Xabar matni bo'sh.")
-        ok, info = await telegram.send_message(user_id, text)
+        ok, info, code = await telegram.send(user_id, text)
         store.log_action(admin, "shaxsiy xabar", user_id, text[:120], ip)
+        if code == 403:
+            store.mark_bot_blocked([user_id])
         if not ok:
             raise HTTPException(502, f"Yuborilmadi: {info}")
         return {"message": "Xabar yuborildi."}
@@ -443,13 +446,16 @@ async def api_request_decide(request: Request, req_id: int, body: RequestDecisio
         raise HTTPException(409, "Bu so'rov allaqachon hal qilingan.")
 
     plan = plans.by_code(req["plan_code"])
+    already = HTTPException(409, "Bu so'rov allaqachon hal qilingan.")
     if body.qaror == "tasdiq":
         if not plan:
             raise HTTPException(400, "Tarif topilmadi")
-        until = store.grant_subscription(req["user_id"], plan["days"])
-        store.add_payment(req["user_id"], plan["code"], plan["price"],
-                          plan["days"], admin)
-        store.decide_request(req_id, "tasdiqlandi", admin)
+        # Holat, obuna va to'lov bitta tranzaksiyada; yuqoridagi holat
+        # tekshiruvi faqat tez javob uchun — haqiqiy himoya shu yerda.
+        result = store.approve_request(req_id, plan, admin)
+        if result is None:
+            raise already
+        _, until = result
         store.log_action(admin, "so'rov tasdiqlandi", req["user_id"], plan["label"], ip)
         await telegram.send_message(
             req["user_id"],
@@ -460,10 +466,13 @@ async def api_request_decide(request: Request, req_id: int, body: RequestDecisio
         return {"message": "Tasdiqlandi va foydalanuvchiga xabar berildi."}
 
     reason = body.sabab.strip()
-    store.decide_request(req_id, "rad etildi", admin, reason)
+    if not store.decide_request(req_id, "rad etildi", admin, reason):
+        raise already
     store.log_action(admin, "so'rov rad etildi", req["user_id"],
                      f"{plans.label(req['plan_code'])} | {reason}"[:200], ip)
-    tail = f"\n\n<b>Sabab:</b> {reason}" if reason else ""
+    # Sabab HTML xabarga qo'yiladi — «<» kabi belgi Telegram'da xato
+    # berib, xabar umuman yetmay qolmasin.
+    tail = f"\n\n<b>Sabab:</b> {html.escape(reason)}" if reason else ""
     await telegram.send_message(
         req["user_id"],
         f"❌ <b>To'lov tasdiqlanmadi</b>{tail}\n\n"
@@ -652,6 +661,9 @@ async def api_broadcast(request: Request, body: BroadcastBody,
     text = body.matn.strip()
     ids = _audience(body.segment, body.til)
     result = await telegram.broadcast(ids, text)
+    # Botni bloklaganlar belgilanadi — keyingi safar ular auditoriyaga
+    # tushmaydi, bot ham ularga avtomatik xabar yubormaydi.
+    store.mark_bot_blocked(result.pop("blocked_ids", []))
     target = SEGMENTS[body.segment]
     if body.til:
         target += f" · {LANGS[body.til]}"

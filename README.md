@@ -15,22 +15,26 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 |---|---|
 | **Umumiy holat** | Kun · hafta · oy filtrida daromad/sarf (oldingi davrning aynan shuncha kuni bilan farqi foizda), foydalanuvchilar soni va holati, konversiya, sof foyda, 30 kunlik o'sish grafigi, muddati tugayotganlar ro'yxati |
 | **Foydalanuvchilar** | Qidiruv, holat bo'yicha filtr, 4 xil tartiblash, sahifalash, CSV eksport |
-| **Foydalanuvchi kartasi** | Obuna berish/uzaytirish/bekor qilish, sinovni uzaytirish, bloklash, shaxsiy xabar yuborish, yozuvlari, AI sarfi, to'lovlar tarixi, hamma ma'lumotni o'chirish |
-| **Obuna so'rovlari** | Botda tarif tanlagan foydalanuvchilar navbati — bir bosishda tasdiqlash yoki rad etish, foydalanuvchiga avtomatik xabar |
+| **Foydalanuvchi kartasi** | Obuna berish/uzaytirish/bekor qilish, sinovni uzaytirish, bloklash, shaxsiy xabar yuborish, yozuvlar SONI, AI sarfi, to'lovlar tarixi, hamma ma'lumotni o'chirish. Moliyaviy yozuvlarning o'zi ko'rinmaydi — ular alohida shifrlangan bazada, kaliti panelda yo'q |
+| **Obuna so'rovlari** | Botda tarif tanlagan foydalanuvchilar navbati — to'lov chekini (rasm yoki PDF) ko'rib tasdiqlash yoki sabab bilan rad etish, foydalanuvchiga avtomatik xabar. Tasdiqlash bitta tranzaksiyada: ikki admin bir vaqtda bossa ham obuna va to'lov bir marta yoziladi |
 | **Moliya** | Kun · hafta · oy kesimida pul oqimi (grafik va jadval ko'rinishida, 30 kun / 12 hafta / 12 oygacha tarix), daromad, AI tannarxi, sof foyda va marja; amal va model bo'yicha sarf; eng ko'p sarflaganlar; kunlik xarajat grafigi; to'lovlar CSV |
-| **Ommaviy xabar** | Segment bo'yicha (hammasi / sinov / obunachi / muddati tugagan) Telegram xabar yuborish |
+| **Ommaviy xabar** | Segment (hammasi / sinov / obunachi / muddati tugagan) va til bo'yicha Telegram xabar. Faqat bloklanmagan, botni bloklamagan va shartlarga rozilik berganlarga ketadi; Telegram 403 bergan odam belgilanadi va keyingi safar auditoriyaga tushmaydi |
+| **Sozlamalar** | Tarif narxlari, karta rekvizitlari, sinov muddati, oylik AI chegarasi — `app_settings` jadvalida, bot ham shuni o'qiydi |
 | **Amallar jurnali** | Har bir admin amali IP bilan qayd etiladi — o'chirib bo'lmaydi |
 
 ## Xavfsizlik
 
 - Parol `scrypt` bilan saqlanadi (N=2¹⁵) — bazadan tiklab bo'lmaydi
-- Sessiya HMAC-SHA256 bilan imzolangan cookie: `HttpOnly`, `Secure`, `SameSite=Lax`
+- Sessiya HMAC-SHA256 bilan imzolangan cookie: `HttpOnly`, `Secure`, `SameSite=Strict`
 - Har bir o'zgartiruvchi amalda CSRF tokeni tekshiriladi
 - 5 ta xato urinishdan keyin 15 daqiqaga qulflanadi; xato login va xato parol
   bir xil javob beradi (hisob nomini taxmin qilishga yo'l qo'ymaydi)
 - `noindex, nofollow` — qidiruv tizimlariga tushmaydi
 - Xizmat `tanga` foydalanuvchisi ostida, `ProtectSystem=strict` bilan ishlaydi
-- Faqat `127.0.0.1:8100` da tinglaydi — tashqariga Caddy orqali HTTPS bilan chiqadi
+- Docker ko'prigining host manzilida (`172.30.0.1:8100`) tinglaydi — Caddy
+  konteyneri shu orqali kiradi, tashqariga faqat HTTPS bilan chiqadi
+- Mijoz IP'si `X-Forwarded-For` ning OXIRGI qiymatidan olinadi (Caddy qo'ygani) —
+  soxta sarlavha bilan fail2ban orqali boshqa IP'ni bloklatib bo'lmaydi
 
 ---
 
@@ -60,7 +64,7 @@ Caddy blogi:
 ```
 tanga.niskandarov.uz {
     encode gzip
-    reverse_proxy 127.0.0.1:8100
+    reverse_proxy 172.30.0.1:8100
 }
 ```
 
@@ -85,35 +89,40 @@ python manage.py kalit                         # ADMIN_SECRET_KEY yaratish
 | `SESSION_HOURS` | Sessiya muddati (standart 12 soat) |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` | Login qulflash chegarasi |
 
-## Ikki xil «daromad va sarf»
+## «Daromad va sarf»
 
-Panelda ikkita pul oqimi bor va ular **ataylab aralashtirilmaydi**:
+Moliya bloki faqat **xizmatning o'z pulini** ko'rsatadi: tasdiqlangan obuna
+to'lovlari (`payments`) minus AI xarajati (`usage_log`, dollar `USD_RATE` bilan
+so'mga o'giriladi).
 
-| Blok | Manba | Ma'nosi |
-|---|---|---|
-| **Xizmat daromadi va sarfi** | `payments` va `usage_log` | Tanga'ning o'z puli: obuna to'lovlari minus AI xarajati. Egasi «daromad» deganda odatda shu |
-| **Foydalanuvchilar aylanmasi** | `transactions` (`kirim` / `chiqim`) | Odamlar botga yozgan yozuvlar hajmi. Bu Tanga'ning puli **emas** — mahsulot qanchalik ishlatilayotganini ko'rsatadi |
+Foydalanuvchilarning kirim/chiqim yig'indisi («aylanma») ATAYLAB yo'q: yozuvlar
+alohida shifrlangan bazada va panelda uning kaliti yo'q. Bundan tashqari bir
+kunda bitta odam yozgan bo'lsa, «umumiy chiqim» aynan o'sha odamning chiqimi
+bo'lib qolardi.
 
-Ikkisini bitta raqamga qo'shish panelning eng katta yolg'oni bo'lardi: bir kunlik
-aylanma 50 mln so'm bo'lishi mumkin, xizmat daromadi esa 136 000. Shu sabab ular
-alohida kartada, alohida nom bilan turadi. Qarz yozuvlari (`qarz_berdim`,
-`qarz_oldim`) aylanmaga kirmaydi — ular na daromad, na sarf.
-
-Davr tanlagichi (**kun · hafta · oy**) ikkala blokka ham birdek ta'sir qiladi:
-biri haftani, ikkinchisi oyni ko'rsatib tursa, ularni yonma-yon o'qib
-bo'lmasdi. Har bir davr oldingi davrning **aynan shuncha kuni** bilan
-solishtiriladi — 15-avgustda «shu oy» 1–15 avgust bo'ladi va 1–15 iyul bilan
-qiyoslanadi, to'liq iyul bilan emas.
+Davr tanlagichi (**kun · hafta · oy**): har bir davr oldingi davrning **aynan
+shuncha kuni** bilan solishtiriladi — 15-avgustda «shu oy» 1–15 avgust bo'ladi
+va 1–15 iyul bilan qiyoslanadi, to'liq iyul bilan emas.
 
 Server va domen kabi doimiy xarajatlar bazada saqlanmaydi, shuning uchun «sof
 natija» faqat AI xarajati ayirilgan holat — to'liq foyda emas.
 
-## Muhim eslatma
+## Tariflar
 
-Obuna tariflari **ikki joyda** takrorlangan:
+Tarif narxlari **bitta joyda** — `app_settings` jadvalida (Sozlamalar ekrani).
+Bot ham shu jadvalni o'qiydi. Kodda faqat boshlang'ich qiymatlar turadi:
 
 - bot: `config.py` → `SUBSCRIPTION_PLANS`
-- panel: `plans.py` → `SUBSCRIPTION_PLANS`
+- panel: `plans.py` → `DEFAULT_PLANS`
 
-Tarif o'zgartirilsa — ikkalasini ham yangilash kerak. Sinov skripti mosligini
-tekshiradi.
+Yangi tarif KODI qo'shilsa (masalan `f12`), u ikkala ro'yxatga ham kiritilishi
+shart — aks holda panel so'rovni «Tarif topilmadi» deb tasdiqlay olmaydi. Bot
+repozitoriysidagi `tests/test_e2e_flow.py` panelning `plans.py` sini o'qib,
+buni tekshiradi.
+
+## Sinovlar
+
+```bash
+pip install -r requirements-dev.txt
+pytest          # vaqtinchalik bazada, tarmoqsiz (Telegram soxtalashtiriladi)
+```

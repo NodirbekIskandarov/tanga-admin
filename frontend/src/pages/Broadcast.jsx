@@ -105,6 +105,8 @@ export default function Broadcast() {
               <code>&lt;code&gt;</code>, <code>&lt;a href&gt;</code>. Qolgan
               belgilar: <span className="mono">{LIMIT - text.length}</span>. Til
               tanlansa, xabar faqat botda o'sha tilni tanlaganlarga boradi.
+              Bloklanganlar, botni bloklaganlar va shartlarga rozilik
+              bermaganlar sanoqqa kirmaydi.
             </p>
 
             <div className="inline bordered-top">
