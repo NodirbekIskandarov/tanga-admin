@@ -48,6 +48,7 @@ export default function Settings() {
         plan_price_3m: toNumber(prices["3m"]),
         plan_price_6m: toNumber(prices["6m"]),
         plan_price_12m: toNumber(prices["12m"]),
+        plan_price_f12: toNumber(prices["f12"]),
         card_number: bot.card_number.trim(),
         card_holder: bot.card_holder.trim(),
         trial_days: Number(bot.trial_days) || 7,
@@ -65,9 +66,16 @@ export default function Settings() {
     <div className="grid2">
       <Card title="Tariflar">
         <div className="pad stack-sm">
-          {data.plans.map((p) => (
+          {/* Sotiladigan tariflar tepada; sotilmaydiganlar (3 va 6 oylik)
+              faqat eski to'lovlar nomi uchun — pastda, belgilangan. */}
+          {[...data.plans]
+            .sort((a, b) => Number(b.public) - Number(a.public))
+            .map((p) => (
             <div className="price-row" key={p.code}>
-              <span className="lb">{p.label}</span>
+              <span className="lb">
+                {p.label}
+                {!p.public && <span className="muted"> · sotilmaydi</span>}
+              </span>
               <input
                 type="text"
                 inputMode="numeric"

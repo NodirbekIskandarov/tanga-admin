@@ -223,12 +223,16 @@ def create_admin(username: str, password_hash: str, salt: str,
         return int(cur.lastrowid)
 
 
-def set_admin_password(username: str, password_hash: str, salt: str) -> None:
+def set_admin_password(username: str, password_hash: str, salt: str,
+                       must_change: int = 0) -> None:
+    """Parolni yozadi. `must_change=1` — parol operator tomonidan
+    berilgan (terminalda ko'rsatilgan): admin birinchi kirishda uni o'zi
+    almashtirishi shart."""
     with conn() as c:
         c.execute(
-            """UPDATE admin_users SET password_hash = ?, salt = ?, must_change = 0
+            """UPDATE admin_users SET password_hash = ?, salt = ?, must_change = ?
                WHERE username = ?""",
-            (password_hash, salt, username.strip().lower()),
+            (password_hash, salt, must_change, username.strip().lower()),
         )
 
 

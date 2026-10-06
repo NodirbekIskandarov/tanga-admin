@@ -46,7 +46,8 @@ def cmd_add(args: list[str]) -> int:
         return 1
     password = auth.generate_password()
     h, s = auth.hash_password(password)
-    store.create_admin(username, h, s, full_name)
+    # Parol terminalda ko'rsatiladi — birinchi kirishda almashtirish shart.
+    store.create_admin(username, h, s, full_name, must_change=1)
     _print_credentials(username, password)
     return 0
 
@@ -62,7 +63,7 @@ def cmd_password(args: list[str]) -> int:
         return 1
     password = auth.generate_password()
     h, s = auth.hash_password(password)
-    store.set_admin_password(username, h, s)
+    store.set_admin_password(username, h, s, must_change=1)
     _print_credentials(username, password)
     return 0
 

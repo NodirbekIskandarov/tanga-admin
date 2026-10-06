@@ -29,5 +29,16 @@ RestrictSUIDSGID=true
 # Bot bazasi va o'z katalogi — yozish faqat shu ikkisiga
 ReadWritePaths=/opt/tanga-admin /opt/tanga
 
+# Panel BOT SIRLARINI ko'ra olmasligi kerak. U bot bilan bir tizim
+# foydalanuvchisi (`tanga`) ostida ishlaydi, shuning uchun fayl ruxsatlari
+# yetmaydi: panel buzilsa u /opt/tanga/.env dagi PRIVATE_DB_KEY, bot tokeni
+# va AI kalitini o'qib, «panel yozuvlarni ko'ra olmaydi» kafolatini yo'q
+# qilardi. Bu yo'llar jarayonning fayl tizimidan butunlay olib tashlanadi
+# (jarayon NoNewPrivileges ostida — to'siqni o'zi ochib ololmaydi).
+# Panelga kerak bo'lgan YAGONA narsa — tanga.db (+ -wal/-shm), u yopilmagan.
+# «-» belgisi: fayl yo'q bo'lsa xato emas. Yangi sir fayli paydo bo'lsa
+# (zaxira nusxa .env va h.k.) — shu ro'yxatga qo'shing.
+InaccessiblePaths=-/opt/tanga/.env -/opt/tanga/.env.oldin -/opt/tanga/.env.bak-2026-10-06 -/opt/tanga/tanga_shaxsiy.db -/opt/tanga/tanga_shaxsiy.db-wal -/opt/tanga/tanga_shaxsiy.db-shm -/opt/tanga/tanga_shaxsiy.db.asosiy-kalit -/opt/tanga/migration_backups
+
 [Install]
 WantedBy=multi-user.target

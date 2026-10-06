@@ -12,14 +12,20 @@ o'qilmasa shu ishlatiladi.
 from __future__ import annotations
 
 DEFAULT_PLANS = [
-    {"code": "1m", "days": 30, "months": 1, "price": 19_000, "label": "Oylik"},
-    {"code": "3m", "days": 90, "months": 3, "price": 99_000, "label": "3 oylik"},
-    {"code": "6m", "days": 180, "months": 6, "price": 179_000, "label": "6 oylik"},
-    {"code": "12m", "days": 365, "months": 12, "price": 149_000, "label": "Yillik"},
+    {"code": "1m", "days": 30, "months": 1, "price": 19_000, "label": "Oylik",
+     "public": True},
+    # 3 va 6 oylik endi sotilmaydi, lekin eski to'lov va so'rovlar shu kodlar
+    # bilan nomlanadi — ro'yxatda qoladi.
+    {"code": "3m", "days": 90, "months": 3, "price": 99_000, "label": "3 oylik",
+     "public": False},
+    {"code": "6m", "days": 180, "months": 6, "price": 179_000, "label": "6 oylik",
+     "public": False},
+    {"code": "12m", "days": 365, "months": 12, "price": 149_000, "label": "Yillik",
+     "public": True},
     # Asoschilar taklifi — birinchi 100 ta to'lovchi uchun 1 yil. Bot uni
     # joylar tugagach o'zi yopadi; bu yerda faqat tasdiqlash uchun kerak.
     {"code": "f12", "days": 365, "months": 12, "price": 99_000,
-     "label": "Asoschilar taklifi"},
+     "label": "Asoschilar taklifi", "public": True},
 ]
 
 PRICE_KEY = "plan_price_{code}"

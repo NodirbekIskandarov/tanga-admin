@@ -17,6 +17,7 @@ import mimetypes
 import os
 import secrets
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -37,14 +38,11 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s", level=logging.INFO)
 log = logging.getLogger("admin")
 
-app = FastAPI(title=settings.APP_NAME, docs_url=None, redoc_url=None, openapi_url=None)
-
 DIST = settings.BASE_DIR / "static" / "dist"
 OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(",", " ").split()
              if x.strip().isdigit()}
 
 
-@app.on_event("startup")
 def _startup() -> None:
     store.init()
     for problem in settings.missing():
@@ -54,6 +52,17 @@ def _startup() -> None:
                     "frontend/ ichida `npm run build` bajaring.", DIST / "index.html")
     log.info("Admin panel tayyor. Baza: %s | Egalar: %s",
              settings.DB_PATH, OWNER_IDS or "yo'q")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # `on_event("startup")` eskirgan (FastAPI): lifespan o'rniga.
+    _startup()
+    yield
+
+
+app = FastAPI(title=settings.APP_NAME, docs_url=None, redoc_url=None,
+              openapi_url=None, lifespan=lifespan)
 
 
 # --------------------------------------------------------------------------- #
@@ -123,6 +132,10 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+# Parolni majburan almashtirish kerak bo'lgan admin faqat shularni ocha oladi.
+MUST_CHANGE_ALLOWED = {"/api/session", "/api/password", "/api/logout", "/api/admins"}
+
+
 def current_admin(request: Request) -> dict:
     data = auth.read_session(request.cookies.get(auth.COOKIE_NAME, ""))
     if not data:
@@ -134,6 +147,11 @@ def current_admin(request: Request) -> dict:
     row = store.get_admin(data["u"])
     if row is None or data.get("v") != auth.password_version(row):
         raise HTTPException(401, "Kirish kerak")
+    # Parol terminalda berilgan bo'lsa (`must_change`), admin uni almashtirmaguncha
+    # boshqa hech narsa ishlamaydi. Ilgari bayroq saqlanardi, lekin hech
+    # qayerda tekshirilmasdi — terminalda ko'ringan parol abadiy qolardi.
+    if row["must_change"] and request.url.path not in MUST_CHANGE_ALLOWED:
+        raise HTTPException(403, "Avval parolni almashtiring.")
     return data
 
 
@@ -219,7 +237,9 @@ def api_login(request: Request, body: LoginBody):
     except auth.LoginError as exc:
         raise HTTPException(401, str(exc))
     session = auth.read_session(token) or {}
-    response = JSONResponse({"admin": session.get("u"), "csrf": session.get("c")})
+    row = store.get_admin(session.get("u") or "")
+    response = JSONResponse({"admin": session.get("u"), "csrf": session.get("c"),
+                             "must_change": bool(row and row["must_change"])})
     _set_session_cookie(response, token)
     return response
 
@@ -243,6 +263,7 @@ def api_session(session: dict = Depends(current_admin)):
         "app_name": settings.APP_NAME,
         "pending": store.pending_count(),
         "proofs": store.proof_count(),
+        "must_change": bool(store.get_admin(session["u"])["must_change"]),
     }
 
 
@@ -559,6 +580,7 @@ class SettingsBody(BaseModel):
     plan_price_3m: int = Field(0, ge=0, le=100_000_000)
     plan_price_6m: int = Field(0, ge=0, le=100_000_000)
     plan_price_12m: int = Field(0, ge=0, le=100_000_000)
+    plan_price_f12: int = Field(0, ge=0, le=100_000_000)
     card_number: str = Field("", max_length=32)
     card_holder: str = Field("", max_length=64)
     trial_days: int = Field(7, ge=1, le=365)
@@ -592,6 +614,7 @@ def api_settings_save(request: Request, body: SettingsBody,
         "plan_price_3m": body.plan_price_3m,
         "plan_price_6m": body.plan_price_6m,
         "plan_price_12m": body.plan_price_12m,
+        "plan_price_f12": body.plan_price_f12,
         "card_number": body.card_number.strip(),
         "card_holder": body.card_holder.strip(),
         "trial_days": body.trial_days,
@@ -599,13 +622,13 @@ def api_settings_save(request: Request, body: SettingsBody,
         "ai_user_monthly_budget_usd": body.ai_user_monthly_budget_usd,
     }
     # Narx nolga tushib qolmasin: 0 kelsa «o'zgartirilmadi» degani.
-    for code in ("1m", "3m", "6m", "12m"):
+    for code in ("1m", "3m", "6m", "12m", "f12"):
         if not values[f"plan_price_{code}"]:
             values[f"plan_price_{code}"] = before[code]
 
     store.settings_save(values, admin)
     changed = [f"{code}: {before[code]} → {values[f'plan_price_{code}']}"
-               for code in ("1m", "3m", "6m", "12m")
+               for code in ("1m", "3m", "6m", "12m", "f12")
                if before[code] != values[f"plan_price_{code}"]]
     store.log_action(admin, "sozlamalar o'zgartirildi", "",
                      "; ".join(changed)[:200] or "rekvizit/limit",
@@ -845,8 +868,11 @@ def health():
         with store.conn() as c:
             c.execute("SELECT 1").fetchone()
         return {"holat": "ok"}
-    except Exception as exc:
-        return JSONResponse({"holat": "xato", "sabab": str(exc)}, status_code=500)
+    except Exception:
+        # Xato matni (fayl yo'li, baza tafsilotlari) tashqariga chiqmaydi —
+        # bu manzil hammaga ochiq. To'liq xato — logda.
+        log.exception("Salomatlik tekshiruvi xato berdi")
+        return JSONResponse({"holat": "xato"}, status_code=500)
 
 
 # --------------------------------------------------------------------------- #

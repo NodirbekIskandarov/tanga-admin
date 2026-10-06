@@ -20,7 +20,7 @@ export default function App() {
   // Sessiya birinchi yuklanishda tekshiriladi. 401 kelsa authSlice uni
   // ushlaydi va admin=null bo'ladi.
   useSessionQuery();
-  const { admin, ready } = useSelector((s) => s.auth);
+  const { admin, ready, mustChange } = useSelector((s) => s.auth);
 
   if (!ready) return <Loading label="Tekshirilmoqda…" />;
 
@@ -30,6 +30,25 @@ export default function App() {
         <Routes>
           <Route path="*" element={<Login />} />
         </Routes>
+        <Toasts />
+      </>
+    );
+  }
+
+  // Parol terminalda berilgan — avval o'zi almashtiradi (server ham boshqa
+  // hamma so'rovni 403 bilan to'xtatadi).
+  if (mustChange) {
+    return (
+      <>
+        <div className="login-wrap">
+          <div className="login-box" style={{ maxWidth: 760 }}>
+            <div className="note warn">
+              Parolingiz terminalda ko'rsatilgan edi. Davom etishdan oldin uni
+              o'zingiz almashtiring.
+            </div>
+            <Password />
+          </div>
+        </div>
         <Toasts />
       </>
     );

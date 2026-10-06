@@ -6,6 +6,8 @@ import { api } from "./api";
 const initialState = {
   admin: null,
   csrf: null,
+  // Parol terminalda berilgan: almashtirmaguncha boshqa sahifa yo'q.
+  mustChange: false,
   ready: false, // birinchi /session so'rovi tugadimi
 };
 
@@ -24,6 +26,7 @@ const authSlice = createSlice({
       .addMatcher(api.endpoints.session.matchFulfilled, (state, { payload }) => {
         state.admin = payload.admin;
         state.csrf = payload.csrf;
+        state.mustChange = !!payload.must_change;
         state.ready = true;
       })
       .addMatcher(api.endpoints.session.matchRejected, (state) => {
@@ -34,6 +37,7 @@ const authSlice = createSlice({
       .addMatcher(api.endpoints.login.matchFulfilled, (state, { payload }) => {
         state.admin = payload.admin;
         state.csrf = payload.csrf;
+        state.mustChange = !!payload.must_change;
         state.ready = true;
       })
       .addMatcher(api.endpoints.logout.matchFulfilled, (state) => {

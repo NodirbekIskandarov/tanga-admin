@@ -32,6 +32,15 @@ boshqaruvning hammasi shu panelga ko'chirildi.
   login va xato parol bir xil javob beradi (hisob nomini taxmin qilishga yo'l
   qo'ymaydi)
 - Ixtiyoriy ikki bosqichli kirish (TOTP): `python manage.py 2fa <login>`
+- Parol almashganda yoki admin o'chirilganda eski sessiyalar darrov bekor bo'ladi
+- `manage.py` bergan parol (terminalda ko'rsatiladi) bir martalik: birinchi
+  kirishda admin uni o'zi almashtirmaguncha boshqa hech narsa ochilmaydi
+- Panel BOT SIRLARINI ko'ra olmaydi: systemd unitida `InaccessiblePaths` bilan
+  `/opt/tanga/.env` va shaxsiy baza jarayon fayl tizimidan olib tashlangan
+  (panel bot bilan bir tizim foydalanuvchisi ostida ishlagani uchun fayl
+  ruxsatlari yetmaydi). Yangi sir fayli paydo bo'lsa — ro'yxatga qo'shing.
+  Unit o'zgarsa: `cp deploy/tanga-admin.service /etc/systemd/system/ &&
+  systemctl daemon-reload && systemctl restart tanga-admin`
 - `noindex, nofollow` — qidiruv tizimlariga tushmaydi
 - Xizmat `tanga` foydalanuvchisi ostida, `ProtectSystem=strict` bilan ishlaydi
 - Docker ko'prigining host manzilida (`172.30.0.1:8100`) tinglaydi — Caddy
