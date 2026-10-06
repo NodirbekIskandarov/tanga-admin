@@ -194,6 +194,8 @@ def _plans() -> list[dict]:
 class LoginBody(BaseModel):
     username: str = Field(max_length=64)
     password: str = Field(max_length=256)
+    # Ikki bosqichli kod — faqat 2FA yoqilgan adminda kerak.
+    code: str = Field("", max_length=12)
 
 
 @app.post("/api/login")
@@ -201,7 +203,10 @@ def api_login(request: Request, body: LoginBody):
     ip = client_ip(request)
     _rate_limit(ip, limit=30)
     try:
-        token = auth.login(body.username, body.password, ip)
+        token = auth.login(body.username, body.password, ip, body.code)
+    except auth.TotpRequired as exc:
+        # Interfeys `totp` belgisini ko'rib kod maydonini ochadi.
+        return JSONResponse({"detail": str(exc), "totp": True}, status_code=401)
     except auth.LoginError as exc:
         raise HTTPException(401, str(exc))
     session = auth.read_session(token) or {}
@@ -514,6 +519,8 @@ class SettingsBody(BaseModel):
     card_holder: str = Field("", max_length=64)
     trial_days: int = Field(7, ge=1, le=365)
     ai_monthly_budget_usd: float = Field(50, gt=0, le=100_000)
+    # Kishi boshiga (bepul va sinov). 0 — chegara yo'q.
+    ai_user_monthly_budget_usd: float = Field(0.5, ge=0, le=1_000)
 
 
 @app.get("/api/settings")
@@ -525,6 +532,7 @@ def api_settings(session: dict = Depends(current_admin)):
             "card_holder": settings.card_holder(),
             "trial_days": settings.trial_days(),
             "ai_monthly_budget_usd": settings.ai_monthly_budget_usd(),
+            "ai_user_monthly_budget_usd": settings.ai_user_monthly_budget_usd(),
         },
         "usd_rate": settings.USD_RATE,
     }
@@ -544,6 +552,7 @@ def api_settings_save(request: Request, body: SettingsBody,
         "card_holder": body.card_holder.strip(),
         "trial_days": body.trial_days,
         "ai_monthly_budget_usd": body.ai_monthly_budget_usd,
+        "ai_user_monthly_budget_usd": body.ai_user_monthly_budget_usd,
     }
     # Narx nolga tushib qolmasin: 0 kelsa «o'zgartirilmadi» degani.
     for code in ("1m", "3m", "6m", "12m"):

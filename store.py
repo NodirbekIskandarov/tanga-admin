@@ -158,10 +158,18 @@ COLUMN_MIGRATIONS = [
 ]
 
 
+# Panelning o'z jadvallariga keyin qo'shilgan ustunlar.
+ADMIN_COLUMN_MIGRATIONS = [
+    # Ikki bosqichli kirish (TOTP) siri, base32. Bo'sh — 2FA yoqilmagan.
+    ("admin_users", "totp_secret",
+     "ALTER TABLE admin_users ADD COLUMN totp_secret TEXT"),
+]
+
+
 def init() -> None:
     with conn() as c:
         c.executescript(ADMIN_SCHEMA)
-        for table, column, sql in COLUMN_MIGRATIONS:
+        for table, column, sql in COLUMN_MIGRATIONS + ADMIN_COLUMN_MIGRATIONS:
             cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
             if cols and column not in cols:
                 c.execute(sql)
@@ -244,8 +252,23 @@ def record_login(username: str, ip: str, ok: bool) -> None:
             (username.strip().lower(), ip, 1 if ok else 0, now_iso()))
 
 
-def recent_failures(username: str) -> int:
-    """Oxirgi qulflash oynasidagi ketma-ket muvaffaqiyatsiz urinishlar soni."""
+def set_admin_totp(username: str, secret: str | None) -> bool:
+    """Ikki bosqichli kirishni yoqadi (sir) yoki o'chiradi (None)."""
+    with conn() as c:
+        return c.execute("UPDATE admin_users SET totp_secret = ? WHERE username = ?",
+                         (secret, username.strip().lower())).rowcount > 0
+
+
+def recent_failures(username: str, ip: str) -> int:
+    """Shu login va SHU IP dan oxirgi qulflash oynasidagi ketma-ket
+    muvaffaqiyatsiz urinishlar soni.
+
+    Ilgari faqat login bo'yicha sanalardi: login nomini bilgan har kim
+    5 ta xato urinish bilan haqiqiy adminni 15 daqiqaga kirolmaydigan
+    qilib qo'ya olardi. Endi qulf faqat urinayotgan manzilga tushadi;
+    ko'p manzildan keladigan hujumni fail2ban (`panel-admin` jail'i,
+    «KIRISH XATO» qatori) firewall darajasida to'xtatadi.
+    """
     since = (datetime.now(settings.TZ)
              - timedelta(minutes=settings.LOGIN_LOCK_MINUTES)).isoformat(timespec="seconds")
     with conn() as c:
@@ -253,9 +276,9 @@ def recent_failures(username: str) -> int:
             # id bo'yicha tartiblaymiz: bir soniya ichidagi urinishlarda
             # vaqt muhri bir xil bo'lib qolishi mumkin.
             """SELECT ok FROM login_attempts
-               WHERE username = ? AND created_at >= ?
+               WHERE username = ? AND ip = ? AND created_at >= ?
                ORDER BY id DESC LIMIT 20""",
-            (username.strip().lower(), since),
+            (username.strip().lower(), ip, since),
         ).fetchall()
     count = 0
     for r in rows:

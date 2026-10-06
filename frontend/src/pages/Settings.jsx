@@ -34,6 +34,7 @@ export default function Settings() {
       card_holder: data.bot.card_holder || "",
       trial_days: String(data.bot.trial_days),
       ai_monthly_budget_usd: String(data.bot.ai_monthly_budget_usd),
+      ai_user_monthly_budget_usd: String(data.bot.ai_user_monthly_budget_usd ?? 0.5),
     });
   }, [data]);
 
@@ -51,6 +52,8 @@ export default function Settings() {
         card_holder: bot.card_holder.trim(),
         trial_days: Number(bot.trial_days) || 7,
         ai_monthly_budget_usd: Number(bot.ai_monthly_budget_usd) || 50,
+        // 0 — ataylab «chegara yo'q», shuning uchun `|| 0.5` emas.
+        ai_user_monthly_budget_usd: Math.max(0, Number(bot.ai_user_monthly_budget_usd) || 0),
       }).unwrap();
       dispatch(pushToast(res.message));
     } catch (err) {
@@ -143,7 +146,26 @@ export default function Settings() {
             />
             <span className="hint">
               Taxminan {som((Number(bot.ai_monthly_budget_usd) || 0) * data.usd_rate)} so'm.
-              Limitga yetganda bot AI amallarini to'xtatadi.
+              Limitga yetganda bepul va sinov foydalanuvchilari uchun AI
+              to'xtaydi; obunachilar ishlashda davom etadi.
+            </span>
+          </label>
+
+          <label className="fld" style={{ margin: 0, width: 200 }}>
+            <span>Kishi boshiga limit, $ / oy</span>
+            <input
+              type="number"
+              className="mono"
+              min={0}
+              step="0.1"
+              value={bot.ai_user_monthly_budget_usd ?? ""}
+              onChange={(e) =>
+                setBot({ ...bot, ai_user_monthly_budget_usd: e.target.value })
+              }
+            />
+            <span className="hint">
+              Faqat bepul va sinov foydalanuvchilari. Yetganda faqat o'sha odam
+              to'xtaydi. 0 — chegara yo'q.
             </span>
           </label>
 

@@ -109,6 +109,19 @@ def ai_monthly_budget_usd() -> float:
         return DEFAULT_MONTHLY_BUDGET_USD
 
 
+DEFAULT_USER_MONTHLY_BUDGET_USD = float(os.getenv("USER_MONTHLY_BUDGET_USD", "0.5"))
+
+
+def ai_user_monthly_budget_usd() -> float:
+    """Kishi boshiga oylik AI chegarasi (faqat bepul va sinov). 0 — o'chiq.
+    Bot ham aynan shu kalitni o'qiydi (config.user_monthly_budget_usd)."""
+    try:
+        value = float(str(_stored().get("ai_user_monthly_budget_usd", "")).strip())
+        return value if value >= 0 else DEFAULT_USER_MONTHLY_BUDGET_USD
+    except (TypeError, ValueError):
+        return DEFAULT_USER_MONTHLY_BUDGET_USD
+
+
 def card_number() -> str:
     return str(_stored().get("card_number", "") or DEFAULT_CARD_NUMBER)
 

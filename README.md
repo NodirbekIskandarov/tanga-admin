@@ -27,8 +27,11 @@ boshqaruvning hammasi shu panelga ko'chirildi.
 - Parol `scrypt` bilan saqlanadi (N=2¹⁵) — bazadan tiklab bo'lmaydi
 - Sessiya HMAC-SHA256 bilan imzolangan cookie: `HttpOnly`, `Secure`, `SameSite=Strict`
 - Har bir o'zgartiruvchi amalda CSRF tokeni tekshiriladi
-- 5 ta xato urinishdan keyin 15 daqiqaga qulflanadi; xato login va xato parol
-  bir xil javob beradi (hisob nomini taxmin qilishga yo'l qo'ymaydi)
+- 5 ta xato urinishdan keyin shu login **va shu IP** 15 daqiqaga qulflanadi —
+  begona odam haqiqiy adminni boshqa manzildan chiqarib yubora olmaydi; xato
+  login va xato parol bir xil javob beradi (hisob nomini taxmin qilishga yo'l
+  qo'ymaydi)
+- Ixtiyoriy ikki bosqichli kirish (TOTP): `python manage.py 2fa <login>`
 - `noindex, nofollow` — qidiruv tizimlariga tushmaydi
 - Xizmat `tanga` foydalanuvchisi ostida, `ProtectSystem=strict` bilan ishlaydi
 - Docker ko'prigining host manzilida (`172.30.0.1:8100`) tinglaydi — Caddy
@@ -75,6 +78,8 @@ python manage.py admin-qoshish <login> [ism]   # yangi admin, parol o'zi yaratil
 python manage.py parol <login>                 # parolni yangilash
 python manage.py royxat                        # adminlar ro'yxati
 python manage.py kalit                         # ADMIN_SECRET_KEY yaratish
+python manage.py 2fa <login>                   # ikki bosqichli kirishni yoqish
+python manage.py 2fa-ochirish <login>          # ... va o'chirish
 ```
 
 ## Sozlamalar (`.env`)
