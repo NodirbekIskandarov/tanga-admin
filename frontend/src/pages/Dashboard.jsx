@@ -58,7 +58,7 @@ export default function Dashboard() {
         <Kpi
           label="Foydalanuvchilar"
           value={ov.users_total}
-          sub={`${activity.today} tasi bugun faol`}
+          sub={`bugun ${activity.today} tasi kirgan`}
         />
         <Kpi
           label="Obunachilar"
@@ -84,7 +84,7 @@ export default function Dashboard() {
           tone={ov.profit_month < 0 ? "bad" : "good"}
         />
         <Kpi
-          label="Bugungi faollik"
+          label="Bugungi yozuvlar"
           value={ov.tx_today}
           sub={`${ov.calls_today} ta AI chaqiruvi`}
         />
