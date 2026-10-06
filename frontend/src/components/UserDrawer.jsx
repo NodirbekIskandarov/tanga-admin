@@ -157,7 +157,12 @@ export default function UserDrawer({ userId, onClose }) {
                           title: "To'lov tushdimi?",
                           note: "Obuna darhol faollashadi va foydalanuvchiga xabar boradi.",
                           cta: "Obunani uzaytirish",
-                          body: { amal: "obuna", plan_code: chosen },
+                          body: {
+                            amal: "obuna", plan_code: chosen,
+                            // Tezkor tugma: tarif narxi to'langan deb yoziladi.
+                            // Sovg'a yoki boshqa summa — foydalanuvchi sahifasida.
+                            summa: plans.find((p) => p.code === chosen)?.price ?? 0,
+                          },
                         })
                       }
                     >

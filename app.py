@@ -15,11 +15,13 @@ import io
 import logging
 import mimetypes
 import os
+import secrets
 import time
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import (BackgroundTasks, Body, Depends, FastAPI, HTTPException,
+                     Query, Request)
 from fastapi.responses import (FileResponse, JSONResponse, Response,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
@@ -124,6 +126,13 @@ def client_ip(request: Request) -> str:
 def current_admin(request: Request) -> dict:
     data = auth.read_session(request.cookies.get(auth.COOKIE_NAME, ""))
     if not data:
+        raise HTTPException(401, "Kirish kerak")
+    # Imzo to'g'ri bo'lishi yetarli emas: admin hali faolmi va parol o'sha
+    # (sessiya berilgandan keyin almashtirilmaganmi). Aks holda o'chirilgan
+    # admin yoki almashtirilgan paroldan oldingi cookie muddat tugaguncha
+    # ishlayverardi.
+    row = store.get_admin(data["u"])
+    if row is None or data.get("v") != auth.password_version(row):
         raise HTTPException(401, "Kirish kerak")
     return data
 
@@ -257,7 +266,13 @@ def api_password(request: Request, body: PasswordBody,
     h, s = auth.hash_password(body.new1)
     store.set_admin_password(session["u"], h, s)
     store.log_action(session["u"], "parol almashtirildi", ip=client_ip(request))
-    return {"ok": True}
+    # Eski sessiyalar (boshqa qurilmalardagilar ham) endi bekor. Joriy
+    # sessiya uchun yangi cookie beriladi — admin o'zi chiqib ketmasin.
+    response = JSONResponse({"ok": True})
+    _set_session_cookie(
+        response, auth.make_session(session["u"],
+                                    auth.password_version(store.get_admin(session["u"]))))
+    return response
 
 
 @app.get("/api/admins")
@@ -339,6 +354,9 @@ class UserAction(BaseModel):
     plan_code: str = Field("", max_length=10)
     kun: int = Field(0, ge=0, le=3650)
     matn: str = Field("", max_length=3000)
+    # «obuna»: haqiqatan tushgan summa. 0 yoki berilmasa — sovg'a: obuna
+    # beriladi, lekin daromadga hech narsa yozilmaydi.
+    summa: int | None = Field(None, ge=0, le=100_000_000)
 
 
 @app.post("/api/users/{user_id}/action")
@@ -349,11 +367,16 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
     if body.amal == "obuna":
         plan = plans.by_code(body.plan_code)
         days = plan["days"] if plan else max(1, body.kun)
-        amount = plan["price"] if plan else 0
+        # Daromad — admin aytgan summa. Ilgari har doim tarif narxi yozilardi:
+        # sovg'a yoki takroriy bosish ham «daromad» bo'lib qolardi (bitta
+        # odamga bir kunda 99 000 + 99 000 + 289 000).
+        amount = body.summa or 0
         until = store.grant_subscription(user_id, days)
-        store.add_payment(user_id, body.plan_code or "qolda", amount, days, admin)
+        store.add_payment(user_id, body.plan_code or "qolda", amount, days, admin,
+                          method="qolda" if amount else "sovga")
         store.log_action(admin, "obuna berildi", user_id,
-                         plans.label(body.plan_code) if plan else f"{days} kun", ip)
+                         (plans.label(body.plan_code) if plan else f"{days} kun")
+                         + (f" | {amount} so'm" if amount else " | sovg'a"), ip)
         await telegram.send_message(
             user_id,
             f"🎉 <b>Obunangiz faollashtirildi!</b>\n\n"
@@ -370,6 +393,9 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
         return {"message": f"Sinov {until.strftime('%d.%m.%Y')} gacha uzaytirildi."}
 
     if body.amal == "bekor":
+        # Faqat muddat bekor qilinadi. To'lov daromadda QOLADI: obuna
+        # sotib olingach pul qaytarilmaydi. Xato yozuvni daromaddan
+        # chiqarish — alohida: /api/payments/{id}/void.
         store.set_subscription_until(user_id, None)
         store.log_action(admin, "obuna bekor qilindi", user_id, ip=ip)
         return {"message": "Obuna bekor qilindi."}
@@ -410,6 +436,20 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
 # --------------------------------------------------------------------------- #
 # Obuna so'rovlari
 # --------------------------------------------------------------------------- #
+
+@app.post("/api/payments/{payment_id}/void")
+def api_void_payment(request: Request, payment_id: int,
+                     session: dict = Depends(writer)):
+    """Xato yoki takroriy to'lov yozuvini daromaddan chiqaradi (hisob
+    tuzatish; pul qaytarilmaydi)."""
+    row = store.void_payment(payment_id)
+    if row is None:
+        raise HTTPException(404, "To'lov topilmadi yoki allaqachon bekor qilingan.")
+    store.log_action(session["u"], "to'lov yozuvi xato deb belgilandi",
+                     row["user_id"], f"#{payment_id} | {row['amount']} so'm",
+                     client_ip(request))
+    return {"message": "Yozuv daromaddan chiqarildi."}
+
 
 @app.get("/api/requests")
 def api_requests(session: dict = Depends(current_admin),
@@ -662,29 +702,74 @@ class BroadcastBody(BaseModel):
     tasdiq: bool = False
 
 
+# Ommaviy xabar FONDA yuboriladi: bitta HTTP so'rovda yuzlab xabar yuborish
+# so'rovni daqiqalarga cho'zardi (proksi/brauzer uzib qo'yadi), Telegram 429
+# bersa esa hisob-kitob buzilardi. Bir vaqtda bitta yuborish; holat xotirada
+# (jarayon qayta ishga tushsa yo'qoladi — yarim yuborilgan xabar jurnalda
+# «boshlandi» bilan qoladi).
+_broadcast_job: dict | None = None
+
+
+def _job_view(job: dict | None) -> dict | None:
+    if job is None:
+        return None
+    sent = job["ok"] + job["failed"]
+    return {"id": job["id"], "total": job["total"], "ok": job["ok"],
+            "failed": job["failed"], "sent": sent, "done": job["done"],
+            "target": job["target"], "errors": job["errors"],
+            "error": job.get("error", "")}
+
+
+async def _run_broadcast(job: dict, ids: list[int], text: str, admin: str,
+                         ip: str) -> None:
+    try:
+        result = await telegram.broadcast(ids, text, progress=job)
+        # Botni bloklaganlar belgilanadi — keyingi safar ular auditoriyaga
+        # tushmaydi, bot ham ularga avtomatik xabar yubormaydi.
+        store.mark_bot_blocked(result.get("blocked_ids", []))
+    except Exception as exc:                                   # noqa: BLE001
+        log.exception("Ommaviy xabar to'xtadi")
+        job["error"] = str(exc)[:200]
+    finally:
+        job["done"] = True
+        store.log_action(admin, "ommaviy xabar", job["target"],
+                         f"{job['ok']} yuborildi, {job['failed']} xato "
+                         f"(jami {job['total']}) | {text[:100]}", ip)
+
+
 @app.post("/api/broadcast")
 async def api_broadcast(request: Request, body: BroadcastBody,
+                        background: BackgroundTasks,
                         session: dict = Depends(writer)):
+    global _broadcast_job
     if body.segment not in SEGMENTS:
         raise HTTPException(400, "Noma'lum segment")
     if body.til not in LANGS:
         raise HTTPException(400, "Noma'lum til")
     if not body.tasdiq:
         raise HTTPException(400, "Yuborishni tasdiqlang")
+    if _broadcast_job is not None and not _broadcast_job["done"]:
+        raise HTTPException(409, "Oldingi yuborish hali tugamadi. Kuting.")
     text = body.matn.strip()
     ids = _audience(body.segment, body.til)
-    result = await telegram.broadcast(ids, text)
-    # Botni bloklaganlar belgilanadi — keyingi safar ular auditoriyaga
-    # tushmaydi, bot ham ularga avtomatik xabar yubormaydi.
-    store.mark_bot_blocked(result.pop("blocked_ids", []))
+    if not ids:
+        raise HTTPException(400, "Qabul qiluvchi yo'q.")
     target = SEGMENTS[body.segment]
     if body.til:
         target += f" · {LANGS[body.til]}"
-    store.log_action(session["u"], "ommaviy xabar", target,
-                     f"{result['ok']} yuborildi, {result['failed']} xato | "
-                     f"{text[:100]}", client_ip(request))
-    return {"message": f"{result['ok']} ta yuborildi, "
-                       f"{result['failed']} ta yuborilmadi.", **result}
+    _broadcast_job = {"id": secrets.token_hex(4), "total": len(ids), "ok": 0,
+                      "failed": 0, "errors": {}, "done": False, "target": target}
+    background.add_task(_run_broadcast, _broadcast_job, ids, text,
+                        session["u"], client_ip(request))
+    return {"message": f"Yuborish boshlandi — {len(ids)} kishi.",
+            "job": _job_view(_broadcast_job)}
+
+
+@app.get("/api/broadcast/job")
+def api_broadcast_job(session: dict = Depends(current_admin)):
+    """Oxirgi ommaviy yuborishning jonli holati (interfeys so'rab turadi)."""
+    return {"job": _job_view(_broadcast_job)}
+
 
 
 # --------------------------------------------------------------------------- #
@@ -706,12 +791,22 @@ def api_log(session: dict = Depends(current_admin),
 # Eksport
 # --------------------------------------------------------------------------- #
 
+def _csv_cell(value):
+    """Excel formula in'ektsiyasidan himoya: `=`, `+`, `-`, `@` yoki tab bilan
+    boshlanadigan MATN oldiga `'` qo'yiladi. Foydalanuvchi o'z Telegram
+    ismini istagancha yozishi mumkin (`=HYPERLINK(...)`) va CSV'ni
+    admin Excel'da ochadi. Sonlar tegilmaydi."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def _csv_response(name: str, header: list[str], rows) -> StreamingResponse:
     buf = io.StringIO()
     writer_ = csv.writer(buf)
     writer_.writerow(header)
     for row in rows:
-        writer_.writerow(row)
+        writer_.writerow([_csv_cell(v) for v in row])
     return StreamingResponse(
         io.BytesIO(buf.getvalue().encode("utf-8-sig")), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -737,10 +832,11 @@ def api_export_payments(request: Request, session: dict = Depends(current_admin)
     store.log_action(session["u"], "eksport", "tolovlar", ip=client_ip(request))
     return _csv_response(
         "tolovlar.csv",
-        ["sana", "user_id", "ism", "tarif", "summa", "kun", "usul", "kim"],
+        ["sana", "user_id", "ism", "tarif", "summa", "kun", "usul", "kim",
+         "bekor_qilingan"],
         ([r["created_at"], r["user_id"], r["first_name"] or "",
           plans.label(r["plan_code"]), r["amount"], r["days"], r["method"],
-          r["created_by"]] for r in rows))
+          r["created_by"], r["voided_at"] or ""] for r in rows))
 
 
 @app.get("/salomatlik")

@@ -112,6 +112,26 @@ va 1–15 iyul bilan qiyoslanadi, to'liq iyul bilan emas.
 Server va domen kabi doimiy xarajatlar bazada saqlanmaydi, shuning uchun «sof
 natija» faqat AI xarajati ayirilgan holat — to'liq foyda emas.
 
+## Daromad yozuvlari
+
+- Daromadga faqat **haqiqatan tushgan summa** yoziladi. Qo'lda «Obuna
+  berish» da summa maydoni bor (standart — tarif narxi); **0** — sovg'a:
+  obuna beriladi, daromadga hech narsa yozilmaydi. So'rovni tasdiqlashda
+  foydalanuvchi ko'rgan (so'rovdagi) narx olinadi, joriy narx emas.
+- **Obuna to'lovi qaytarilmaydi** (bot shartlari, 4-band). Shuning uchun
+  panelda «pulni qaytarish» yo'q. «Obunani bekor qilish» faqat muddatni
+  olib tashlaydi, to'lov daromadda qoladi.
+- Xato yoki takroriy yozuv (masalan, ikki marta bosilgan tugma) to'lovlar
+  jadvalidagi **«Xato yozuv»** tugmasi bilan daromaddan chiqariladi — bu hisob
+  tuzatish, pul qaytarish emas. Yozuv tarixda qoladi, jurnalga yoziladi.
+
+## Ommaviy xabar
+
+Yuborish **fonda** ketadi: sahifa jonli progress ko'rsatadi, Telegram tezlik
+chegarasi (429) kutiladi, HTML xatosi bo'lsa xabar belgilari qochirilib
+qayta yuboriladi. Bir vaqtda bitta yuborish. Jarayon qayta ishga tushsa,
+yarim yuborilgan xabar davom ettirilmaydi.
+
 ## Tariflar
 
 Tarif narxlari **bitta joyda** — `app_settings` jadvalida (Sozlamalar ekrani).

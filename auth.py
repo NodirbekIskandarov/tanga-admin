@@ -61,12 +61,25 @@ def _sign(payload: bytes) -> str:
     ).decode().rstrip("=")
 
 
-def make_session(username: str) -> str:
+def password_version(row) -> str:
+    """Parolning qisqa izi (xeshning xeshi). Sessiyaga yoziladi: parol
+    almashtirilganda eski sessiyalar shu tufayli o'zi bekor bo'ladi.
+
+    Ilgari sessiya faqat imzo va muddatga tayanardi: parol almashtirilsa
+    yoki admin o'chirilsa, eski cookie (masalan o'g'irlangan) yana 12 soat
+    ishlayverardi.
+    """
+    return hashlib.sha256(str(row["password_hash"]).encode()).hexdigest()[:16]
+
+
+def make_session(username: str, version: str = "") -> str:
     payload = {
         "u": username,
         "exp": int(time.time()) + settings.SESSION_HOURS * 3600,
         # CSRF tokeni sessiyaning ichida — alohida saqlash kerak emas.
         "c": secrets.token_urlsafe(16),
+        # Parol versiyasi — current_admin har so'rovda bazadagi bilan solishtiradi.
+        "v": version,
     }
     raw = json.dumps(payload, separators=(",", ":")).encode()
     body = base64.urlsafe_b64encode(raw).decode().rstrip("=")
@@ -183,4 +196,4 @@ def login(username: str, password: str, ip: str, code: str = "") -> str:
     store.record_login(username, ip, True)
     store.touch_admin_login(username)
     store.log_action(username, "kirdi", ip=ip)
-    return make_session(username)
+    return make_session(username, password_version(row))

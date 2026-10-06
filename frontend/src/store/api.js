@@ -31,7 +31,7 @@ export const api = createApi({
   baseQuery: baseQueryWithAuth,
   tagTypes: [
     "Session", "Users", "User", "Requests", "Dashboard", "Finance", "Log",
-    "Settings",
+    "Settings", "Broadcast",
   ],
   endpoints: (build) => ({
     // ---- Sessiya ----
@@ -49,6 +49,8 @@ export const api = createApi({
     }),
     changePassword: build.mutation({
       query: (body) => ({ url: "/password", method: "POST", body }),
+      // Parol almashganda server yangi sessiya (va yangi CSRF tokeni) beradi.
+      invalidatesTags: ["Session"],
     }),
     admins: build.query({ query: () => "/admins" }),
 
@@ -133,6 +135,17 @@ export const api = createApi({
     broadcastInfo: build.query({ query: () => "/broadcast" }),
     sendBroadcast: build.mutation({
       query: (body) => ({ url: "/broadcast", method: "POST", body }),
+      invalidatesTags: ["Broadcast"],
+    }),
+    // Yuborish fonda ketadi — interfeys shu holatni so'rab turadi.
+    broadcastJob: build.query({
+      query: () => "/broadcast/job",
+      providesTags: ["Broadcast"],
+    }),
+    // Xato yoki takroriy to'lov yozuvini daromaddan chiqarish (pul qaytarilmaydi).
+    voidPayment: build.mutation({
+      query: (id) => ({ url: `/payments/${id}/void`, method: "POST" }),
+      invalidatesTags: ["User", "Users", "Dashboard", "Finance"],
     }),
 
     // ---- Jurnal ----
@@ -162,5 +175,7 @@ export const {
   useSaveSettingsMutation,
   useBroadcastInfoQuery,
   useSendBroadcastMutation,
+  useBroadcastJobQuery,
+  useVoidPaymentMutation,
   useLogQuery,
 } = api;

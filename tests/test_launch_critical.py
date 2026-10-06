@@ -123,7 +123,7 @@ def test_funnel_by_source():
 
 def test_user_budget_setting_roundtrip_including_zero(admin):
     import app as app_module
-    token = auth.make_session(admin)
+    token = auth.make_session(admin, auth.password_version(store.get_admin(admin)))
     client = TestClient(app_module.app, base_url="https://testserver")
     client.cookies.set(auth.COOKIE_NAME, token)
     client.headers["X-CSRF-Token"] = auth.read_session(token)["c"]

@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useBroadcastInfoQuery, useSendBroadcastMutation } from "../store/api";
+import {
+  useBroadcastInfoQuery,
+  useBroadcastJobQuery,
+  useSendBroadcastMutation,
+} from "../store/api";
 import { pushToast, setBroadcastLang } from "../store/uiSlice";
 import { Card, ErrorBox, Loading, Modal, Seg } from "../components/common";
 
@@ -32,6 +36,24 @@ export default function Broadcast() {
   const [text, setText] = useState("");
   const [asking, setAsking] = useState(false);
 
+  // Yuborish serverda fonda ketadi; holatni shu yerda so'rab turamiz.
+  const [pollMs, setPollMs] = useState(0);
+  const { data: jobData } = useBroadcastJobQuery(undefined, { pollingInterval: pollMs });
+  const job = jobData?.job;
+  const running = !!job && !job.done;
+  const watching = useRef(null);
+  useEffect(() => { setPollMs(running ? 1500 : 0); }, [running]);
+  useEffect(() => {
+    if (!job) return;
+    if (!job.done) { watching.current = job.id; return; }
+    // Biz kuzatgan yuborish tugadi — yakuniy natijani bir marta aytamiz.
+    if (watching.current === job.id) {
+      watching.current = null;
+      dispatch(pushToast(
+        `Yuborish tugadi: ${job.ok} ta yuborildi, ${job.failed} ta yuborilmadi.`));
+    }
+  }, [job, dispatch]);
+
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
 
@@ -45,6 +67,7 @@ export default function Broadcast() {
     try {
       const res = await send({ segment, matn: text, til: lang, tasdiq: true }).unwrap();
       dispatch(pushToast(res.message));
+      watching.current = res.job?.id ?? null;
       setText("");
     } catch (err) {
       dispatch(pushToast(err?.data?.detail || "Yuborib bo'lmadi.", "bad"));
@@ -66,6 +89,29 @@ export default function Broadcast() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {job && (
+        <Card title={running ? "Yuborilmoqda…" : "Oxirgi yuborish"}>
+          <div className="pad stack-sm">
+            <div className="inline mono" style={{ fontSize: 13 }}>
+              <span>{job.sent} / {job.total}</span>
+              <span className="spacer" />
+              <span className="muted">{job.target}</span>
+            </div>
+            <div className="meter">
+              <span style={{ width: `${Math.min(100, (100 * job.sent) / Math.max(1, job.total))}%` }} />
+            </div>
+            <p className="hint" style={{ margin: 0 }}>
+              Yuborildi <span className="mono">{job.ok}</span> · yuborilmadi{" "}
+              <span className="mono">{job.failed}</span>
+              {job.error ? ` · xato: ${job.error}` : ""}
+              {Object.entries(job.errors || {}).slice(0, 3).map(([msg, n]) => (
+                <span key={msg} className="muted"> · {msg} ({n})</span>
+              ))}
+            </p>
+          </div>
+        </Card>
       )}
 
       <div className="grid3">
@@ -120,7 +166,7 @@ export default function Broadcast() {
               </button>
               <button
                 className="btn pri"
-                disabled={sending || !text.trim() || !total}
+                disabled={sending || running || !text.trim() || !total}
                 onClick={() => setAsking(true)}
               >
                 {sending ? "Yuborilmoqda…" : "Yuborish"}

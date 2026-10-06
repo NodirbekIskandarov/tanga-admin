@@ -39,8 +39,11 @@ def client(monkeypatch):
     monkeypatch.setattr(telegram, "send", fake_send)
     monkeypatch.setattr(telegram.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(app_module, "OWNER_IDS", {OWNER})
+    monkeypatch.setattr(app_module, "_broadcast_job", None)
 
-    token = auth.make_session("admin")
+    h, salt = auth.hash_password("test-parol-123")
+    store.create_admin("admin", h, salt)
+    token = auth.make_session("admin", auth.password_version(store.get_admin("admin")))
     csrf = auth.read_session(token)["c"]
     c = TestClient(app_module.app, base_url="https://testserver")
     c.cookies.set(auth.COOKIE_NAME, token)
@@ -72,7 +75,9 @@ def test_broadcast_marks_bot_blocked(client):
     r = client.post("/api/broadcast",
                     json={"segment": "hammasi", "matn": "Salom", "tasdiq": True})
     assert r.status_code == 200, r.text
-    assert r.json()["ok"] == 1 and "blocked_ids" not in r.json()
+    # Yuborish fonda: natija holat endpoint'idan o'qiladi.
+    job = client.get("/api/broadcast/job").json()["job"]
+    assert job["done"] and job["ok"] == 1 and job["failed"] == 1
     assert _user(403)["bot_blocked_at"]
     # Keyingi safar u auditoriyaga tushmaydi.
     assert store.all_user_ids("", {OWNER}) == [1]

@@ -2,7 +2,9 @@ import Fresh from "../components/Fresh";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import { useUserActionMutation, useUserQuery } from "../store/api";
+import {
+  useVoidPaymentMutation, useUserActionMutation, useUserQuery,
+} from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import {
   Av, Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
@@ -17,9 +19,12 @@ export default function UserDetail() {
   const { data, isLoading, isFetching, error, refetch, fulfilledTimeStamp } =
     useUserQuery(id, { pollingInterval: 25000 });
   const [act, { isLoading: acting }] = useUserActionMutation();
+  const [voidPay, { isLoading: voiding }] = useVoidPaymentMutation();
   const [ask, confirmDialog] = useConfirm();
 
   const [planCode, setPlanCode] = useState("");
+  // Haqiqatan tushgan summa. null — tanlangan tarif narxi; 0 — sovg'a.
+  const [amount, setAmount] = useState(null);
   const [trialDays, setTrialDays] = useState(7);
   const [message, setMessage] = useState("");
 
@@ -29,6 +34,20 @@ export default function UserDetail() {
   const u = data.user;
   const plans = data.plans;
   const chosenPlan = planCode || plans[0]?.code;
+  const planPrice = plans.find((p) => p.code === chosenPlan)?.price ?? 0;
+  const paid = amount === null ? planPrice : Math.max(0, Number(amount) || 0);
+
+  async function voidPayment(p) {
+    const q = `${som(p.amount)} so'mlik yozuv xato ekanini tasdiqlaysizmi? ` +
+      "U daromaddan chiqariladi. Bu pulni qaytarish emas — faqat hisob tuzatish.";
+    if (!(await ask(q, true))) return;
+    try {
+      const res = await voidPay(p.id).unwrap();
+      dispatch(pushToast(res.message));
+    } catch (err) {
+      dispatch(pushToast(err?.data?.detail || "Xatolik yuz berdi.", "bad"));
+    }
+  }
 
   async function run(body, { confirm, danger, after } = {}) {
     if (confirm && !(await ask(confirm, danger))) return;
@@ -82,7 +101,7 @@ export default function UserDetail() {
               <div className="row" style={{ alignItems: "flex-end" }}>
                 <label className="fld grow" style={{ margin: 0 }}>
                   <span>Tarif</span>
-                  <select value={chosenPlan} onChange={(e) => setPlanCode(e.target.value)}>
+                  <select value={chosenPlan} onChange={(e) => { setPlanCode(e.target.value); setAmount(null); }}>
                     {plans.map((p) => (
                       <option key={p.code} value={p.code}>
                         {p.label} — {som(p.price)} so'm ({p.days} kun)
@@ -90,13 +109,27 @@ export default function UserDetail() {
                     ))}
                   </select>
                 </label>
+                <label className="fld" style={{ margin: 0, width: 150 }}>
+                  <span>Tushgan summa, so'm</span>
+                  <input
+                    type="number"
+                    className="mono"
+                    min={0}
+                    value={amount === null ? planPrice : amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </label>
                 <button
                   className="btn pri"
                   disabled={acting}
                   onClick={() =>
                     run(
-                      { amal: "obuna", plan_code: chosenPlan },
-                      { confirm: "To'lov tushdimi? Obuna darhol faollashadi va foydalanuvchiga xabar boradi." }
+                      { amal: "obuna", plan_code: chosenPlan, summa: paid },
+                      {
+                        confirm: paid > 0
+                          ? `${som(paid)} so'm to'lov tushdimi? Obuna darhol faollashadi, to'lov daromadga yoziladi va foydalanuvchiga xabar boradi.`
+                          : "Sovg'a: obuna beriladi, lekin daromadga hech narsa yozilmaydi. Foydalanuvchiga xabar boradi.",
+                      }
                     )
                   }
                 >
@@ -104,8 +137,8 @@ export default function UserDetail() {
                 </button>
               </div>
               <p className="hint">
-                Muddat mavjud obuna ustiga qo'shiladi. To'lov avtomatik qayd
-                etiladi va foydalanuvchiga Telegram orqali xabar boradi.
+                Muddat mavjud obuna ustiga qo'shiladi. Daromadga faqat yuqoridagi
+                summa yoziladi — sovg'a uchun 0 qo'ying.
               </p>
 
               <hr />
@@ -132,11 +165,10 @@ export default function UserDetail() {
                 <button
                   className="btn"
                   disabled={acting}
-                  onClick={() => run({ amal: "bekor" }, { confirm: "Obuna bekor qilinsinmi?" })}
+                  onClick={() => run({ amal: "bekor" }, { confirm: "Obuna muddati bekor qilinsinmi? To'lov daromadda qoladi — sotib olingan obuna uchun pul qaytarilmaydi." })}
                 >
                   Obunani bekor qilish
                 </button>
-
                 {u.blocked ? (
                   <button
                     className="btn ok"
@@ -260,7 +292,22 @@ export default function UserDetail() {
                     <tr key={p.id}>
                       <td className="mono nowrap">{day(p.created_at)}</td>
                       <td>{p.plan_code}</td>
-                      <td className="num">{som(p.amount)}</td>
+                      <td className="num">
+                        {p.voided_at ? (
+                          <span className="muted" title={`Daromaddan chiqarilgan: ${day(p.voided_at)}`}>
+                            <s>{som(p.amount)}</s> xato yozuv
+                          </span>
+                        ) : (
+                          <>
+                            {som(p.amount)}{" "}
+                            <button className="btn" disabled={voiding}
+                                    title="Bu to'lov aslida tushmagan yoki takroriy yozuv — daromaddan chiqarish (pul qaytarilmaydi)"
+                                    onClick={() => voidPayment(p)}>
+                              Xato yozuv
+                            </button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

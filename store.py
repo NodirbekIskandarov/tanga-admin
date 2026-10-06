@@ -96,7 +96,10 @@ CREATE TABLE IF NOT EXISTS payments (
     days       INTEGER NOT NULL DEFAULT 0,
     method     TEXT    NOT NULL DEFAULT 'qolda',
     created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-    created_by TEXT    NOT NULL DEFAULT ''
+    created_by TEXT    NOT NULL DEFAULT '',
+    -- Xato yoki takroriy yozuv: daromadga kirmaydi, yozuv tarix uchun qoladi.
+    -- Bu pulni qaytarish EMAS — obuna to'lovi qaytarilmaydi (shartlar, 4-band).
+    voided_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pay_time ON payments(created_at DESC);
 
@@ -163,6 +166,8 @@ ADMIN_COLUMN_MIGRATIONS = [
     # Ikki bosqichli kirish (TOTP) siri, base32. Bo'sh — 2FA yoqilmagan.
     ("admin_users", "totp_secret",
      "ALTER TABLE admin_users ADD COLUMN totp_secret TEXT"),
+    ("payments", "voided_at",
+     "ALTER TABLE payments ADD COLUMN voided_at TEXT"),
 ]
 
 
@@ -413,9 +418,10 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
         # Oxirgi to'langan tarif — ro'yxatdagi «Tarif» ustuni uchun.
         last_plan = dict(c.execute(
             "SELECT user_id, plan_code FROM payments WHERE id IN "
-            "(SELECT MAX(id) FROM payments GROUP BY user_id)").fetchall())
+            "(SELECT MAX(id) FROM payments WHERE voided_at IS NULL GROUP BY user_id)").fetchall())
         paid = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM payments GROUP BY user_id").fetchall())
+            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL "
+            "GROUP BY user_id").fetchall())
 
     for r in rows:
         r["state"] = access_state(r, owner_ids)
@@ -504,7 +510,8 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
             "SELECT * FROM subscription_requests WHERE user_id = ? ORDER BY id DESC LIMIT 10",
             (user_id,)).fetchall()]
         u["paid_total"] = int(c.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE user_id = ?",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments "
+            "WHERE user_id = ? AND voided_at IS NULL",
             (user_id,)).fetchone()[0])
     return u
 
@@ -686,7 +693,8 @@ def list_requests(status: str = "", limit: int = 100) -> list:
         counts = dict(c.execute(
             "SELECT user_id, SUM(n) FROM entry_counts GROUP BY user_id").fetchall())
         paid = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM payments GROUP BY user_id").fetchall())
+            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL "
+            "GROUP BY user_id").fetchall())
         rejected = dict(c.execute(
             "SELECT user_id, COUNT(*) FROM subscription_requests "
             "WHERE status = 'rad etildi' GROUP BY user_id").fetchall())
@@ -766,15 +774,20 @@ def approve_request(req_id: int, plan: dict, admin: str) -> tuple[int, datetime]
             (now_iso(), admin, req_id))
         if cur.rowcount == 0:
             return None
-        user_id = int(c.execute(
-            "SELECT user_id FROM subscription_requests WHERE id = ?",
-            (req_id,)).fetchone()[0])
+        req = c.execute(
+            "SELECT user_id, price FROM subscription_requests WHERE id = ?",
+            (req_id,)).fetchone()
+        user_id = int(req["user_id"])
+        # Daromad — foydalanuvchi KO'RGAN va to'lagan narx (so'rovdagi),
+        # joriy narx emas: tarif narxi so'rov va tasdiq orasida o'zgargan
+        # bo'lsa, daromad to'lanmagan summa bilan yozilmasin.
+        price = int(req["price"] or 0) or plan["price"]
         until = _extend_subscription(c, user_id, plan["days"])
         c.execute(
             """INSERT INTO payments
                (user_id, plan_code, amount, days, method, created_by, created_at)
                VALUES (?,?,?,?,?,?,?)""",
-            (user_id, plan["code"], plan["price"], plan["days"], "qolda", admin,
+            (user_id, plan["code"], price, plan["days"], "qolda", admin,
              now_iso()))
     return user_id, until
 
@@ -787,6 +800,25 @@ def add_payment(user_id: int, plan_code: str, amount: int, days: int,
                (user_id, plan_code, amount, days, method, created_by, created_at)
                VALUES (?,?,?,?,?,?,?)""",
             (user_id, plan_code, amount, days, method, admin, now_iso()))
+
+
+def void_payment(payment_id: int) -> dict | None:
+    """To'lov yozuvini «xato» deb belgilaydi — daromaddan chiqadi, yozuv
+    tarix va jurnal uchun qoladi.
+
+    Bu pulni QAYTARISH emas: obuna sotib olingach to'lov qaytarilmaydi.
+    Bu faqat hisob tuzatish — masalan bir odamga bir kunda bir necha marta
+    bosilgan «obuna berish» yoki tushmagan to'lovning yozuvi.
+    Qaytadi: yozuv yoki None (topilmadi / allaqachon belgilangan).
+    """
+    with conn() as c:
+        row = c.execute("SELECT * FROM payments WHERE id = ? AND voided_at IS NULL",
+                        (payment_id,)).fetchone()
+        if row is None:
+            return None
+        c.execute("UPDATE payments SET voided_at = ? WHERE id = ?",
+                  (now_iso(), payment_id))
+        return dict(row)
 
 
 # --------------------------------------------------------------------------- #
@@ -834,7 +866,8 @@ def revenue_series(scale: str = "oylik") -> dict:
     count = {"kunlik": 14, "oylik": 12, "yillik": 4}.get(scale, 12)
     keys = _bucket_keys(scale, count * 2)
     with conn() as c:
-        rows = c.execute("SELECT created_at, amount FROM payments").fetchall()
+        rows = c.execute("SELECT created_at, amount FROM payments "
+                         "WHERE voided_at IS NULL").fetchall()
 
     sums: dict[str, int] = {}
     for created_at, amount in rows:
@@ -876,7 +909,8 @@ def stats(owner_ids: set[int]) -> dict:
             "SELECT COUNT(*) FROM users WHERE created_at >= ?",
             ((now - timedelta(days=30)).date().isoformat(),)).fetchone()[0])
         pay_rows = c.execute(
-            "SELECT plan_code, amount, user_id, created_at FROM payments").fetchall()
+            "SELECT plan_code, amount, user_id, created_at FROM payments "
+            "WHERE voided_at IS NULL").fetchall()
         cost_month = float(c.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
             (month_start,)).fetchone()[0])
@@ -998,7 +1032,8 @@ def _funnel_data(owner_ids: set[int]) -> tuple[list[dict], dict[int, list[str]],
         entry_days: dict[int, list[str]] = {}
         for r in c.execute("SELECT user_id, day FROM entry_counts WHERE n > 0"):
             entry_days.setdefault(r[0], []).append(str(r[1]))
-        paid = {r[0] for r in c.execute("SELECT DISTINCT user_id FROM payments")}
+        paid = {r[0] for r in c.execute(
+            "SELECT DISTINCT user_id FROM payments WHERE voided_at IS NULL")}
     return users, entry_days, paid
 
 
@@ -1044,9 +1079,11 @@ def overview(owner_ids: set[int]) -> dict:
             "SELECT COUNT(*) FROM usage_log WHERE day = ?",
             (today().isoformat(),)).fetchone()[0])
         revenue_all = int(c.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments").fetchone()[0])
+            "SELECT COALESCE(SUM(amount), 0) FROM payments "
+            "WHERE voided_at IS NULL").fetchone()[0])
         revenue_month = int(c.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE created_at >= ?",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments "
+            "WHERE created_at >= ? AND voided_at IS NULL",
             (today().replace(day=1).isoformat(),)).fetchone()[0])
 
     states = {"ega": 0, "obunachi": 0, "sinov": 0, "tugagan": 0, "bloklangan": 0}
@@ -1314,7 +1351,8 @@ def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict]:
     # SQLite'ning datetime() si buni UTC ga o'girib yuborardi.
     pay = _by_key(c,
         f"SELECT {group('substr(created_at, 1, 10)')} k, COALESCE(SUM(amount), 0) s "
-        "FROM payments WHERE substr(created_at, 1, 10) BETWEEN ? AND ? "
+        "FROM payments WHERE voided_at IS NULL "
+        "AND substr(created_at, 1, 10) BETWEEN ? AND ? "
         "GROUP BY k", (lo, hi))
     ai_usd = _by_key(c,
         f"SELECT {group('day')} k, COALESCE(SUM(cost_usd), 0) s FROM usage_log "
