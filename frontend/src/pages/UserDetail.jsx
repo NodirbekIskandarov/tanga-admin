@@ -9,7 +9,7 @@ import { pushToast } from "../store/uiSlice";
 import {
   Av, Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
 } from "../components/common";
-import { day, som, usd } from "../lib/format";
+import { amalNomi, day, som, usd } from "../lib/format";
 
 export default function UserDetail() {
   const { id } = useParams();
@@ -264,7 +264,7 @@ export default function UserDetail() {
                   {u.usage.length === 0 && <Empty colSpan={3}>Sarf yo'q.</Empty>}
                   {u.usage.map((x) => (
                     <tr key={x.operation}>
-                      <td>{x.operation}</td>
+                      <td>{amalNomi(x.operation)}</td>
                       <td className="num">{x.calls}</td>
                       <td className="num">{usd(x.cost)}</td>
                     </tr>

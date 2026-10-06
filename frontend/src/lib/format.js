@@ -119,3 +119,18 @@ export function davrNomi(davr, start, end) {
   if (davr === "hafta") return oraliq(start, end || start);
   return kunOy(start);
 }
+
+/**
+ * AI amal turining o'qiladigan nomi. Bazada amal nomi qisqa (`matn`,
+ * `chek`, `savol`, `ovoz`); yangi/noma'lum nom o'zi ko'rinadi.
+ */
+const AMAL_NOMLARI = {
+  matn: "Matnli yozuv",
+  chek: "Chek",
+  savol: "AI savol",
+  ovoz: "Ovozli yozuv",
+};
+
+export function amalNomi(amal) {
+  return AMAL_NOMLARI[amal] || String(amal || "—");
+}

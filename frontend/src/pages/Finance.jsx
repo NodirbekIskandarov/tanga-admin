@@ -6,7 +6,7 @@ import { LineChart, Legend } from "../components/Chart";
 import Cashflow from "../components/Cashflow";
 import Fresh from "../components/Fresh";
 import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
-import { dt, som, usd } from "../lib/format";
+import { amalNomi, dt, som, usd } from "../lib/format";
 
 const RANGES = [
   [7, "7 kun"],
@@ -114,7 +114,7 @@ export default function Finance() {
                 {data.breakdown.by_operation.map((r) => (
                   <tr key={r.operation}>
                     <td>
-                      <b>{r.operation}</b>
+                      <b>{amalNomi(r.operation)}</b>
                     </td>
                     <td className="num">{r.calls}</td>
                     <td className="num">{usd(r.cost)}</td>
