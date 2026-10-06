@@ -500,6 +500,9 @@ def api_stats(session: dict = Depends(current_admin),
         "stats": store.stats(OWNER_IDS),
         "revenue": store.revenue_series(davr),
         "usd_rate": settings.USD_RATE,
+        # Faollashtirish voronkasi: hammasi va oxirgi 30 kunda boshlaganlar.
+        "funnel": {"all": store.funnel(OWNER_IDS),
+                   "d30": store.funnel(OWNER_IDS, 30)},
     }
 
 

@@ -938,6 +938,60 @@ def stats(owner_ids: set[int]) -> dict:
     }
 
 
+FUNNEL_STEPS = [
+    ("start", "/start bosgan"),
+    ("rozilik", "Shartlarga rozilik bergan"),
+    ("yozuv", "Kamida 1 ta yozuv qilgan"),
+    ("faol7", "7-kundan keyin ham yozgan"),
+    ("tolov", "Pul to'lagan"),
+]
+
+
+def funnel(owner_ids: set[int], days: int | None = None) -> list[dict]:
+    """Faollashtirish voronkasi: start -> rozilik -> 1-yozuv -> 7-kun -> to'lov.
+
+    Faqat SONLAR: `users`, `entry_counts` (kunlik yozuvlar soni) va
+    `payments`. `days` berilsa — faqat shu kunlar ichida boshlaganlar
+    (reklama/o'zgarishdan keyingi guruhni alohida ko'rish uchun).
+
+    «7-kundan keyin ham yozgan» — ro'yxatdan o'tgan kundan kamida 7 kun
+    keyin yozuv kiritganlar. Hali 7 kun o'tmaganlar bu bosqichga yetolmaydi,
+    shuning uchun yangi guruhda bu ulush tabiiy ravishda past.
+    """
+    since = (today() - timedelta(days=days)).isoformat() if days else None
+    with conn() as c:
+        users = [dict(r) for r in c.execute(
+            "SELECT user_id, created_at, consent_at FROM users").fetchall()]
+        entry_days: dict[int, list[str]] = {}
+        for r in c.execute("SELECT user_id, day FROM entry_counts WHERE n > 0"):
+            entry_days.setdefault(r[0], []).append(str(r[1]))
+        paid = {r[0] for r in c.execute("SELECT DISTINCT user_id FROM payments")}
+
+    group = [u for u in users
+             if u["user_id"] not in owner_ids
+             and (since is None or str(u["created_at"] or "")[:10] >= since)]
+
+    def active_after_week(u) -> bool:
+        try:
+            start = date.fromisoformat(str(u["created_at"])[:10])
+        except ValueError:
+            return False
+        cutoff = (start + timedelta(days=7)).isoformat()
+        return any(d >= cutoff for d in entry_days.get(u["user_id"], []))
+
+    counts = {
+        "start": len(group),
+        "rozilik": sum(1 for u in group if u.get("consent_at")),
+        "yozuv": sum(1 for u in group if entry_days.get(u["user_id"])),
+        "faol7": sum(1 for u in group if active_after_week(u)),
+        "tolov": sum(1 for u in group if u["user_id"] in paid),
+    }
+    top = max(1, counts["start"])
+    return [{"key": k, "label": label, "count": counts[k],
+             "percent": round(100 * counts[k] / top)}
+            for k, label in FUNNEL_STEPS]
+
+
 def _plan_list() -> list[dict]:
     import plans
     return plans.all_plans()

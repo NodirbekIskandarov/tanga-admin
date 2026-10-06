@@ -41,6 +41,37 @@ function RevenueBars({ items }) {
   );
 }
 
+/**
+ * Faollashtirish voronkasi: har bosqich /start bosganlarga nisbatan foizda.
+ * Ikki ko'rsatkich: hammasi va oxirgi 30 kunda boshlaganlar — o'zgarish
+ * yoki reklamadan keyingi guruh eski foydalanuvchilar bilan aralashmasin.
+ */
+function Funnel({ all, d30 }) {
+  return (
+    <>
+      <div className="bars">
+        {all.map((step, i) => (
+          <div className="bar-row" key={step.key}>
+            <span>{step.label}</span>
+            <span className="bar-track">
+              <span className="bar-fill" style={{ width: `${step.percent}%` }} />
+            </span>
+            <span className="bar-val">
+              {step.count} · {step.percent}%
+              <span className="muted"> · 30 kun: {d30[i].count} · {d30[i].percent}%</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="hint">
+        Foiz — /start bosganlarga nisbatan. «7-kundan keyin ham yozgan» —
+        ro'yxatdan o'tganidan kamida bir hafta keyin yozuv kiritganlar.
+        Faqat sonlar: yozuvlarning mazmuni panelda yo'q.
+      </p>
+    </>
+  );
+}
+
 export default function Stats() {
   const dispatch = useDispatch();
   const range = useSelector((s) => s.ui.statsRange);
@@ -75,6 +106,14 @@ export default function Stats() {
         />
         <Kpi label="O'rtacha chek" value={som(s.avgCheck)} sub="so'm" tone="brass" />
       </div>
+
+      {data.funnel && (
+        <Card title="Faollashtirish voronkasi">
+          <div className="pad">
+            <Funnel all={data.funnel.all} d30={data.funnel.d30} />
+          </div>
+        </Card>
+      )}
 
       <Card
         title="Daromad"

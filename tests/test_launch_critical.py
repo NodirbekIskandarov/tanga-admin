@@ -78,6 +78,28 @@ def test_admin_without_totp_logs_in_as_before(admin):
     assert auth.read_session(auth.login(admin, "to'g'ri-parol-123", "1.2.3.4"))
 
 
+# ------------------------------------------------------------ K7 voronka --
+
+def test_funnel_counts_each_step():
+    from datetime import datetime, timedelta
+    from tests.conftest import add_user
+    old = (datetime.now(settings.TZ) - timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+    week_later = (datetime.now(settings.TZ) - timedelta(days=50)).date().isoformat()
+    add_user(1, created_at=old)                               # rozi, yozuv, 7-kun, to'lov
+    add_user(2, created_at=old)                               # rozi, faqat 1-kun yozgan
+    add_user(3, created_at=old, consent_at=None)              # faqat start
+    add_user(777, created_at=old)                             # ega — sanalmaydi
+    with store.conn() as c:
+        c.execute("INSERT INTO entry_counts VALUES (1, ?, 3)", (old[:10],))
+        c.execute("INSERT INTO entry_counts VALUES (1, ?, 2)", (week_later,))
+        c.execute("INSERT INTO entry_counts VALUES (2, ?, 1)", (old[:10],))
+    store.add_payment(1, "1m", 19_000, 30, "admin")
+
+    got = {s["key"]: s["count"] for s in store.funnel({777})}
+    assert got == {"start": 3, "rozilik": 2, "yozuv": 2, "faol7": 1, "tolov": 1}
+    assert {s["key"]: s["count"] for s in store.funnel({777}, 30)}["start"] == 0
+
+
 # ------------------------------------------------------- K1 sozlamasi --
 
 def test_user_budget_setting_roundtrip_including_zero(admin):
