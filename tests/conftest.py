@@ -45,7 +45,8 @@ CREATE TABLE users (
     lang             TEXT    NOT NULL DEFAULT 'uz',
     consent_at       TEXT,
     consent_version  TEXT    NOT NULL DEFAULT '',
-    bot_blocked_at   TEXT
+    bot_blocked_at   TEXT,
+    source           TEXT
 );
 CREATE TABLE usage_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,

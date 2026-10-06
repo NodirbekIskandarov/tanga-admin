@@ -959,18 +959,51 @@ def funnel(owner_ids: set[int], days: int | None = None) -> list[dict]:
     shuning uchun yangi guruhda bu ulush tabiiy ravishda past.
     """
     since = (today() - timedelta(days=days)).isoformat() if days else None
+    users, entry_days, paid = _funnel_data(owner_ids)
+    group = [u for u in users
+             if since is None or str(u["created_at"] or "")[:10] >= since]
+    counts = _funnel_counts(group, entry_days, paid)
+    top = max(1, counts["start"])
+    return [{"key": k, "label": label, "count": counts[k],
+             "percent": round(100 * counts[k] / top)}
+            for k, label in FUNNEL_STEPS]
+
+
+def funnel_by_source(owner_ids: set[int]) -> list[dict]:
+    """Voronka reklama manbasi bo'yicha (K8): bot /start src_<kanal> ni
+    `users.source` ga yozadi, do'st taklifi — «ref», bo'sh — to'g'ridan.
+
+    Qaysi kanal odam olib kelyapti emas, qaysi kanal YOZUV qiladigan va
+    TO'LAYDIGAN odam olib kelyapti — reklama byudjeti shunga qarab
+    taqsimlanadi. Eng ko'p start bergan manba birinchi.
+    """
+    users, entry_days, paid = _funnel_data(owner_ids)
+    groups: dict[str, list[dict]] = {}
+    for u in users:
+        groups.setdefault(u.get("source") or "", []).append(u)
+    out = []
+    for source, group in groups.items():
+        counts = _funnel_counts(group, entry_days, paid)
+        out.append({"source": source, **counts})
+    out.sort(key=lambda r: (-r["start"], r["source"]))
+    return out
+
+
+def _funnel_data(owner_ids: set[int]) -> tuple[list[dict], dict[int, list[str]], set[int]]:
     with conn() as c:
-        users = [dict(r) for r in c.execute(
-            "SELECT user_id, created_at, consent_at FROM users").fetchall()]
+        cols = "user_id, created_at, consent_at" + (
+            ", source" if _has_column(c, "users", "source") else "")
+        users = [dict(r) for r in c.execute(f"SELECT {cols} FROM users").fetchall()
+                 if r["user_id"] not in owner_ids]
         entry_days: dict[int, list[str]] = {}
         for r in c.execute("SELECT user_id, day FROM entry_counts WHERE n > 0"):
             entry_days.setdefault(r[0], []).append(str(r[1]))
         paid = {r[0] for r in c.execute("SELECT DISTINCT user_id FROM payments")}
+    return users, entry_days, paid
 
-    group = [u for u in users
-             if u["user_id"] not in owner_ids
-             and (since is None or str(u["created_at"] or "")[:10] >= since)]
 
+def _funnel_counts(group: list[dict], entry_days: dict[int, list[str]],
+                   paid: set[int]) -> dict[str, int]:
     def active_after_week(u) -> bool:
         try:
             start = date.fromisoformat(str(u["created_at"])[:10])
@@ -979,17 +1012,13 @@ def funnel(owner_ids: set[int], days: int | None = None) -> list[dict]:
         cutoff = (start + timedelta(days=7)).isoformat()
         return any(d >= cutoff for d in entry_days.get(u["user_id"], []))
 
-    counts = {
+    return {
         "start": len(group),
         "rozilik": sum(1 for u in group if u.get("consent_at")),
         "yozuv": sum(1 for u in group if entry_days.get(u["user_id"])),
         "faol7": sum(1 for u in group if active_after_week(u)),
         "tolov": sum(1 for u in group if u["user_id"] in paid),
     }
-    top = max(1, counts["start"])
-    return [{"key": k, "label": label, "count": counts[k],
-             "percent": round(100 * counts[k] / top)}
-            for k, label in FUNNEL_STEPS]
 
 
 def _plan_list() -> list[dict]:

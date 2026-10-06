@@ -100,6 +100,25 @@ def test_funnel_counts_each_step():
     assert {s["key"]: s["count"] for s in store.funnel({777}, 30)}["start"] == 0
 
 
+def test_funnel_by_source():
+    from tests.conftest import add_user
+    add_user(1, source="insta")
+    add_user(2, source="insta", consent_at=None)
+    add_user(3, source="ref")
+    add_user(4)                                               # to'g'ridan
+    add_user(777, source="insta")                             # ega — sanalmaydi
+    with store.conn() as c:
+        c.execute("INSERT INTO entry_counts VALUES (1, '2026-10-01', 2)")
+    store.add_payment(3, "1m", 19_000, 30, "admin")
+
+    rows = {r["source"]: r for r in store.funnel_by_source({777})}
+    assert rows["insta"]["start"] == 2 and rows["insta"]["rozilik"] == 1
+    assert rows["insta"]["yozuv"] == 1 and rows["insta"]["tolov"] == 0
+    assert rows["ref"]["tolov"] == 1
+    assert rows[""]["start"] == 1
+    assert [r["source"] for r in store.funnel_by_source({777})][0] == "insta"
+
+
 # ------------------------------------------------------- K1 sozlamasi --
 
 def test_user_budget_setting_roundtrip_including_zero(admin):

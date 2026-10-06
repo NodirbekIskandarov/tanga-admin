@@ -72,6 +72,54 @@ function Funnel({ all, d30 }) {
   );
 }
 
+/** Foiz — shu manbadan /start bosganlarga nisbatan. */
+function pct(n, of) {
+  return of ? `${Math.round((100 * n) / of)}%` : "—";
+}
+
+/**
+ * Voronka reklama manbasi bo'yicha. Havola: t.me/<bot>?start=src_<kanal>;
+ * «ref» — do'st taklifi; bo'sh — to'g'ridan-to'g'ri kelganlar.
+ */
+function Sources({ rows }) {
+  const name = (s) => (s === "ref" ? "Do'st taklifi" : s || "To'g'ridan-to'g'ri");
+  return (
+    <>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Manba</th>
+              <th className="num">Start</th>
+              <th className="num">Rozilik</th>
+              <th className="num">1-yozuv</th>
+              <th className="num">7-kun</th>
+              <th className="num">To'lov</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.source || "-"}>
+                <td className={r.source && r.source !== "ref" ? "mono" : ""}>{name(r.source)}</td>
+                <td className="num">{r.start}</td>
+                <td className="num">{r.rozilik} · {pct(r.rozilik, r.start)}</td>
+                <td className="num">{r.yozuv} · {pct(r.yozuv, r.start)}</td>
+                <td className="num">{r.faol7} · {pct(r.faol7, r.start)}</td>
+                <td className="num">{r.tolov} · {pct(r.tolov, r.start)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint pad" style={{ marginTop: 0 }}>
+        Har bir reklama uchun alohida havola bering:{" "}
+        <span className="mono">t.me/hisobchi_tanga_bot?start=src_kanal_nomi</span>{" "}
+        (lotin harf, raqam, «_»). Manba faqat botni birinchi marta ochganda yoziladi.
+      </p>
+    </>
+  );
+}
+
 export default function Stats() {
   const dispatch = useDispatch();
   const range = useSelector((s) => s.ui.statsRange);
@@ -112,6 +160,12 @@ export default function Stats() {
           <div className="pad">
             <Funnel all={data.funnel.all} d30={data.funnel.d30} />
           </div>
+        </Card>
+      )}
+
+      {data.funnel?.sources && (
+        <Card title="Reklama kanallari">
+          <Sources rows={data.funnel.sources} />
         </Card>
       )}
 
