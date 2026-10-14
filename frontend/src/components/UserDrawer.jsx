@@ -19,6 +19,10 @@ export default function UserDrawer({ userId, onClose }) {
   const [act, { isLoading: acting }] = useUserActionMutation();
   const [confirm, setConfirm] = useState(null);
   const [plan, setPlan] = useState("");
+  // «Ruxsat berish»: ixtiyoriy kun + chegara darajasi (PRO / sinov).
+  const [grantDays, setGrantDays] = useState(1);
+  const [grantLevel, setGrantLevel] = useState("pro");
+  const [grantAmount, setGrantAmount] = useState(0);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && !confirm && onClose();
@@ -138,6 +142,72 @@ export default function UserDrawer({ userId, onClose }) {
                     ))}
                   </div>
                 )}
+
+                <div className="group bordered">
+                  <div className="lbl">Ruxsat berish (ixtiyoriy muddat)</div>
+                  <div className="row">
+                    <input
+                      type="number"
+                      className="mono"
+                      min={1}
+                      max={3650}
+                      style={{ width: 84 }}
+                      value={grantDays}
+                      onChange={(e) => setGrantDays(Number(e.target.value))}
+                      aria-label="Necha kun"
+                    />
+                    <span className="muted">kun</span>
+                    <select
+                      value={grantLevel}
+                      onChange={(e) => setGrantLevel(e.target.value)}
+                      aria-label="Qaysi chegarada"
+                    >
+                      <option value="pro">PRO — to'liq</option>
+                      <option value="sinov">Sinov — cheklangan</option>
+                    </select>
+                  </div>
+                  {grantLevel === "pro" && (
+                    <div className="row">
+                      <input
+                        type="number"
+                        className="mono"
+                        min={0}
+                        style={{ width: 120 }}
+                        value={grantAmount}
+                        onChange={(e) => setGrantAmount(Math.max(0, Number(e.target.value) || 0))}
+                        aria-label="Tushgan summa"
+                      />
+                      <span className="muted">so'm tushgan (0 — sovg'a)</span>
+                    </div>
+                  )}
+                  <div className="row">
+                    <button
+                      className="btn pri"
+                      disabled={acting || !(grantDays >= 1 && grantDays <= 3650)}
+                      onClick={() =>
+                        setConfirm({
+                          title: `${grantDays} kunlik ${grantLevel === "pro" ? "PRO" : "sinov"} ruxsati beriladimi?`,
+                          note:
+                            grantLevel === "pro"
+                              ? (grantAmount > 0
+                                  ? `${som(grantAmount)} so'm daromadga yoziladi. `
+                                  : "Sovg'a: daromadga hech narsa yozilmaydi. ") +
+                                "Foydalanuvchiga xabar boradi."
+                              : "Jami chek soni cheklangan. Foydalanuvchiga xabar boradi.",
+                          cta: "Ruxsat berish",
+                          body: {
+                            amal: "ruxsat",
+                            kun: grantDays,
+                            daraja: grantLevel,
+                            ...(grantLevel === "pro" ? { summa: grantAmount } : {}),
+                          },
+                        })
+                      }
+                    >
+                      Ruxsat berish
+                    </button>
+                  </div>
+                </div>
 
                 <div className="group bordered">
                   <div className="lbl">Amallar</div>
