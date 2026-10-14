@@ -11,6 +11,7 @@ const KINDS = [
   ["", "Amal — barchasi"],
   ["chek", "Chek qarori"],
   ["obuna", "Obuna berildi"],
+  ["ruxsat", "Ruxsat berildi"],
   ["ommaviy xabar", "Ommaviy xabar"],
   ["blok", "Bloklash"],
   ["sozlamalar", "Sozlamalar"],

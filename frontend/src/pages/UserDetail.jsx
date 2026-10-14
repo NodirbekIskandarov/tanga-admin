@@ -27,6 +27,10 @@ export default function UserDetail() {
   const [amount, setAmount] = useState(null);
   const [trialDays, setTrialDays] = useState(7);
   const [message, setMessage] = useState("");
+  // «Ruxsat berish»: ixtiyoriy kun soni + chegara darajasi.
+  const [grantDays, setGrantDays] = useState(30);
+  const [grantLevel, setGrantLevel] = useState("pro");
+  const [grantAmount, setGrantAmount] = useState(0);
 
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
@@ -96,6 +100,75 @@ export default function UserDetail() {
 
       <div className="grid3">
         <div className="stack">
+          <Card title="Ruxsat berish (ixtiyoriy muddat va chegara)">
+            <div className="pad">
+              <div className="row" style={{ alignItems: "flex-end" }}>
+                <label className="fld" style={{ margin: 0, width: 120 }}>
+                  <span>Necha kun</span>
+                  <input
+                    type="number"
+                    className="mono"
+                    min={1}
+                    max={3650}
+                    value={grantDays}
+                    onChange={(e) => setGrantDays(Number(e.target.value))}
+                  />
+                </label>
+                <label className="fld grow" style={{ margin: 0 }}>
+                  <span>Qaysi chegarada</span>
+                  <select value={grantLevel} onChange={(e) => setGrantLevel(e.target.value)}>
+                    <option value="pro">PRO — to'liq chegaralar</option>
+                    <option value="sinov">Sinov — PRO, lekin jami chek soni cheklangan</option>
+                  </select>
+                </label>
+                {grantLevel === "pro" && (
+                  <label className="fld" style={{ margin: 0, width: 150 }}>
+                    <span>Tushgan summa, so'm</span>
+                    <input
+                      type="number"
+                      className="mono"
+                      min={0}
+                      value={grantAmount}
+                      onChange={(e) => setGrantAmount(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </label>
+                )}
+                <button
+                  className="btn pri"
+                  disabled={acting || !(grantDays >= 1 && grantDays <= 3650)}
+                  onClick={() =>
+                    run(
+                      {
+                        amal: "ruxsat",
+                        kun: grantDays,
+                        daraja: grantLevel,
+                        ...(grantLevel === "pro" ? { summa: grantAmount } : {}),
+                      },
+                      {
+                        confirm:
+                          grantLevel === "pro"
+                            ? `${grantDays} kunlik PRO ruxsat beriladi. ` +
+                              (grantAmount > 0
+                                ? `${som(grantAmount)} so'm daromadga yoziladi.`
+                                : "Sovg'a: daromadga hech narsa yozilmaydi.") +
+                              " Foydalanuvchiga xabar boradi."
+                            : `${grantDays} kunlik sinov ruxsati beriladi (jami chek soni cheklangan). Foydalanuvchiga xabar boradi.`,
+                      }
+                    )
+                  }
+                >
+                  Ruxsat berish
+                </button>
+              </div>
+              <p className="hint">
+                Kun soni 1 dan 3650 gacha. Muddat mavjud muddat ustiga qo'shiladi.
+                «PRO» — to'liq imkoniyat (kunlik adolatli chegaralar bilan); «Sinov» —
+                yangi foydalanuvchining sinov chegarasi. Faol obunasi bor odamga
+                «Sinov» berilmaydi. Bepul darajaga tushirish — «Obunani bekor qilish».
+              </p>
+            </div>
+          </Card>
+
           <Card title="Obunani boshqarish">
             <div className="pad">
               <div className="row" style={{ alignItems: "flex-end" }}>

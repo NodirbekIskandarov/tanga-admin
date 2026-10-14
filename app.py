@@ -378,6 +378,8 @@ class UserAction(BaseModel):
     # «obuna»: haqiqatan tushgan summa. 0 yoki berilmasa — sovg'a: obuna
     # beriladi, lekin daromadga hech narsa yozilmaydi.
     summa: int | None = Field(None, ge=0, le=100_000_000)
+    # «ruxsat»: qaysi chegara darajasida — "pro" yoki "sinov" (pastga qarang).
+    daraja: str = Field("", max_length=10)
 
 
 @app.post("/api/users/{user_id}/action")
@@ -404,6 +406,49 @@ async def api_user_action(request: Request, user_id: int, body: UserAction,
             f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha\n\n"
             f"Rahmat! Holatni ko'rish: /holat")
         return {"message": f"Obuna berildi — {until.strftime('%d.%m.%Y')} gacha."}
+
+    if body.amal == "ruxsat":
+        # Ixtiyoriy kun soni va chegara darajasini tanlab foydalanish ruxsati.
+        #   pro   — to'liq PRO chegaralari (obuna kabi; muddat mavjud obuna
+        #           ustiga qo'shiladi). Daromadga faqat `summa` yoziladi:
+        #           berilmasa — sovg'a.
+        #   sinov — PRO imkoniyatlari, lekin sinov chegarasi (bot tomonida
+        #           TRIAL_RECEIPTS_TOTAL: jami chek soni cheklangan).
+        # Daraja «Bepul» tanlanmaydi: u ruxsat berilmagandagi holat
+        # (obunani bekor qilish bilan tushiriladi).
+        if body.kun < 1:
+            raise HTTPException(400, "Kun soni kamida 1 bo'lishi kerak.")
+        if body.daraja not in ("pro", "sinov"):
+            raise HTTPException(400, "Daraja «pro» yoki «sinov» bo'lishi kerak.")
+        if body.daraja == "sinov":
+            current = store.get_user(user_id, OWNER_IDS)
+            if current and current["state"] == "obunachi":
+                # Faol obuna sinovdan ustun turadi — sinov chegarasi hech
+                # qachon ko'rinmas edi, admin adashib qolmasin.
+                raise HTTPException(
+                    400, "Bu foydalanuvchida faol obuna bor: sinov chegarasi "
+                         "qo'llanmaydi. «PRO» ni tanlang yoki avval obunani bekor qiling.")
+            until = store.extend_trial(user_id, body.kun)
+            store.log_action(admin, "ruxsat berildi", user_id,
+                             f"sinov chegarasi | {body.kun} kun", ip)
+            await telegram.send_message(
+                user_id,
+                f"🎁 <b>Sizga {body.kun} kunlik sinov ruxsati berildi.</b>\n\n"
+                f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha. Holat: /holat")
+            return {"message": f"Sinov ruxsati {until.strftime('%d.%m.%Y')} gacha berildi."}
+
+        amount = body.summa or 0
+        until = store.grant_subscription(user_id, body.kun)
+        store.add_payment(user_id, "qolda", amount, body.kun, admin,
+                          method="qolda" if amount else "sovga")
+        store.log_action(admin, "ruxsat berildi", user_id,
+                         f"PRO chegarasi | {body.kun} kun"
+                         + (f" | {amount} so'm" if amount else " | sovg'a"), ip)
+        await telegram.send_message(
+            user_id,
+            f"🎉 <b>Sizga {body.kun} kunlik PRO ruxsat berildi!</b>\n\n"
+            f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha. Holat: /holat")
+        return {"message": f"PRO ruxsat {until.strftime('%d.%m.%Y')} gacha berildi."}
 
     if body.amal == "sinov":
         until = store.extend_trial(user_id, max(1, body.kun))
