@@ -74,7 +74,7 @@ sudo systemctl enable --now tanga-admin
 Caddy blogi:
 
 ```
-tanga.niskandarov.uz {
+admin.tangabot.uz {
     encode gzip
     reverse_proxy 172.30.0.1:8100
 }
