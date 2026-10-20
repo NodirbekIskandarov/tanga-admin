@@ -338,17 +338,25 @@ def api_users(session: dict = Depends(current_admin),
               holat: str = Query("", max_length=20),
               tarif: str = Query("", max_length=10),
               faollik: str = Query("", max_length=10),
+              segment: str = Query("", max_length=20),
+              til: str = Query("", max_length=5),
+              manba: str = Query("", max_length=64),
               tartib: str = Query("yangi", max_length=20),
               sahifa: int = Query(1, ge=1, le=10_000)):
+    if segment and segment not in store.SEGMENTLAR:
+        raise HTTPException(400, "Noma'lum segment")
     per = 40
     rows, total = store.list_users(
         q, holat, OWNER_IDS, tartib, per, (sahifa - 1) * per,
-        plan=tarif, activity=faollik)
+        plan=tarif, activity=faollik, segment=segment, lang=til, source=manba)
     return {
         "items": rows, "total": total, "page": sahifa,
         "pages": max(1, (total + per - 1) // per),
         "plans": _plans(),
         "activity": store.activity_counts(OWNER_IDS),
+        # Filtrlar uchun sonlar: aloqa segmentlari, manbalar, tillar.
+        "summary": store.audience_summary(OWNER_IDS),
+        "segment_labels": store.SEGMENTLAR,
     }
 
 
@@ -731,7 +739,7 @@ SEGMENTS = {
     "hammasi": "Hammaga",
     "obunachi": "Faol obunachilar",
     "sinov": "Sinovdagilar",
-    "tugagan": "Muddati tugaganlar",
+    "bepul": "Bepul darajadagilar (sinovi tugagan)",
 }
 
 # Bot tillari. Xabar bitta tilda yoziladi, shuning uchun uni faqat o'sha
@@ -887,10 +895,13 @@ def api_export_users(request: Request, session: dict = Depends(current_admin)):
     return _csv_response(
         "foydalanuvchilar.csv",
         ["user_id", "ism", "username", "holat", "qolgan_kun", "royxatdan_otgan",
-         "oxirgi_faollik", "yozuvlar", "ai_xarajat_usd"],
+         "oxirgi_faollik", "yozuvlar", "ai_xarajat_usd", "til", "manba",
+         "rozilik", "botni_bloklagan", "oxirgi_yozuv"],
         ([r["user_id"], r["first_name"], r["username"] or "", r["state"],
           r["days_left"] if r["days_left"] is not None else "", r["created_at"],
-          r["last_seen_at"] or "", r["tx_count"], f"{r['cost_usd']:.4f}"]
+          r["last_seen_at"] or "", r["tx_count"], f"{r['cost_usd']:.4f}",
+          r["lang"], r["source"], "ha" if r["consented"] else "yoq",
+          r["bot_blocked_at"] or "", r.get("last_entry_day") or ""]
          for r in rows))
 
 

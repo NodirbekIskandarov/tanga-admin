@@ -4,7 +4,7 @@ import { useDispatch } from "react-redux";
 import { useUserActionMutation, useUserQuery } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import { Av, Fact, Facts, Loading, Modal, Tag } from "./common";
-import { day, dt, som } from "../lib/format";
+import { day, dt, som, tilNomi } from "../lib/format";
 
 /**
  * Foydalanuvchi kartasi o'ng paneldan ochiladi.
@@ -109,6 +109,14 @@ export default function UserDrawer({ userId, onClose }) {
                   </Fact>
                   <Fact label="Yozuvlar">{u.tx_count}</Fact>
                   <Fact label="Oxirgi faollik">{day(u.last_seen_at)}</Fact>
+                  <Fact label="Til" mono={false}>{tilNomi(u.lang)}</Fact>
+                  <Fact label="Aloqa" mono={false}>
+                    {u.bot_blocked
+                      ? <Tag kind="bad">botni bloklagan</Tag>
+                      : !u.consented
+                        ? <Tag kind="warn">rozilik yo'q</Tag>
+                        : "ochiq"}
+                  </Fact>
                 </Facts>
 
                 <div className="group">

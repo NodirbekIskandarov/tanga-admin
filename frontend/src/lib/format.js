@@ -134,3 +134,37 @@ const AMAL_NOMLARI = {
 export function amalNomi(amal) {
   return AMAL_NOMLARI[amal] || String(amal || "—");
 }
+
+/** Bot tillari — ro'yxat va kartadagi yorliq. */
+const TILLAR = { uz: "O'zbek lotin", uzc: "O'zbek kirill", ru: "Rus" };
+
+export function tilNomi(code) {
+  return TILLAR[code] || String(code || "—");
+}
+
+/**
+ * Bot hodisalarining o'qiladigan nomi (tanga `db.log_event` nomlari).
+ * Noma'lum nom o'zi ko'rinadi — bot yangi hodisa qo'shsa panel buzilmaydi.
+ */
+const VOQEALAR = {
+  start: "Botni ochdi (/start)",
+  birinchi_yozuv: "Birinchi yozuvini qildi",
+  onboard_nudge: "Birinchi yozuvga eslatma yuborildi",
+  chek_yuborildi: "Chek yubordi",
+  ovoz_yuborildi: "Ovozli xabar yubordi",
+  ovoz_tasdiq_soraldi: "Ovozli yozuvga tasdiq so'raldi",
+  ovoz_rad: "Ovozli xabar qabul qilinmadi",
+  paywall_korsatildi: "PRO chegarasiga urildi",
+  ai_limit: "AI limitiga urildi",
+  sinov_tugadi: "Sinov tugadi",
+  obuna_ochildi: "Tariflarni ochdi",
+  maqsad_yaratildi: "Maqsad yaratdi",
+  qarz_eslatma: "Qarz eslatmasi yuborildi",
+  digest_pro_hint: "Haftalik xulosada PRO taklifi",
+  referral_bonus: "Taklif bonusi oldi",
+  xabar_olindi: "Ommaviy xabar oldi",
+};
+
+export function voqeaNomi(name) {
+  return VOQEALAR[name] || String(name || "—");
+}

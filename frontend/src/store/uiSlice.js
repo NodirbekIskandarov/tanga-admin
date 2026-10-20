@@ -4,7 +4,8 @@ import { createSlice, nanoid } from "@reduxjs/toolkit";
 // Filtrlarni Redux'da saqlash sahifalar orasida yurganda tanlovni
 // yo'qotmaslik uchun kerak.
 const initialState = {
-  userFilters: { q: "", holat: "", tarif: "", faollik: "", tartib: "yangi", sahifa: 1 },
+  userFilters: { q: "", holat: "", tarif: "", faollik: "", segment: "", til: "", manba: "",
+                 tartib: "yangi", sahifa: 1 },
   requestFilter: "ochiq",
   financeDays: 30,
   statsRange: "oylik",

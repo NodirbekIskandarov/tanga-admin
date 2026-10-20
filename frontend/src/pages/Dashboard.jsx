@@ -25,6 +25,7 @@ export default function Dashboard() {
   const ai = stats.ai;
   const aiTone = ai.percent >= 90 ? "bad" : ai.percent >= 75 ? "warn" : "";
   const total = ov.users_total || 1;
+  const churn = ov.churn || {};
 
   return (
     <>
@@ -69,7 +70,7 @@ export default function Dashboard() {
         <Kpi
           label="Bepul sinovda"
           value={ov.states.sinov}
-          sub={`${ov.states.tugagan} tasining muddati tugagan`}
+          sub={`${ov.states.bepul} tasi bepul darajada`}
         />
         <Kpi
           label="Shu oy daromad"
@@ -195,7 +196,7 @@ export default function Dashboard() {
               rows={[
                 ["obunachi", "Obunachilar", "--success"],
                 ["sinov", "Bepul sinovda", "--warn"],
-                ["tugagan", "Muddati tugagan", "--border-strong"],
+                ["bepul", "Bepul daraja", "--border-strong"],
                 ["bloklangan", "Bloklangan", "--danger"],
                 ["ega", "Egalar", "--brass"],
               ].map(([key, label, color]) => ({
@@ -203,6 +204,29 @@ export default function Dashboard() {
                 value: ov.states[key],
                 color: `var(${color})`,
                 text: `${ov.states[key]} · ${Math.round((100 * ov.states[key]) / total)}%`,
+              }))}
+            />
+            {/* Aloqa: holat «bepul» bo'lsa ham odam allaqachon ketgan bo'lishi
+                mumkin — botni bloklagan yoki rozilik bermagan. */}
+            <div
+              className="muted"
+              style={{ fontSize: 12, margin: "14px 0 6px", textTransform: "uppercase",
+                       letterSpacing: ".04em" }}
+            >
+              Aloqa
+            </div>
+            <Bars
+              max={total}
+              rows={[
+                ["yetib_boradi", "Xabar yetib boradi", "--success"],
+                ["bloklagan", "Botni bloklagan", "--danger"],
+                ["rozilik_yoq", "Rozilik bermagan", "--warn"],
+                ["yozmagan", "Hech yozmagan", "--border-strong"],
+              ].map(([key, label, color]) => ({
+                label,
+                value: churn[key] || 0,
+                color: `var(${color})`,
+                text: `${churn[key] || 0} · ${Math.round((100 * (churn[key] || 0)) / total)}%`,
               }))}
             />
           </div>

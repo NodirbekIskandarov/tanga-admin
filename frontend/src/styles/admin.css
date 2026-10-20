@@ -245,7 +245,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .tag.tasdiqlangan, .tag.tasdiqlandi { background: var(--success-bg); color: var(--success); }
 .tag.warn, .tag.sinov,
 .tag.kutilmoqda, .tag.tekshiruvda { background: var(--warn-bg); color: var(--warn); }
-.tag.bad, .tag.bloklangan, .tag.tugagan,
+.tag.bad, .tag.bloklangan,
 .tag.rad, .tag.radetildi { background: var(--danger-bg); color: var(--danger); }
 .tag.brass, .tag.ega { background: var(--brass-bg); color: var(--brass); }
 

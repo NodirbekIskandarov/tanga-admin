@@ -68,7 +68,7 @@ def test_very_long_grant_is_allowed_up_to_ten_years(client):
 def test_trial_level_extends_trial_not_subscription(client):
     past = (datetime.now(settings.TZ) - timedelta(days=3)).isoformat(timespec="seconds")
     add_user(1, trial_ends_at=past, subscribed_until=None)
-    assert _user()["state"] == "tugagan"
+    assert _user()["state"] == "bepul"
     r = _grant(client, kun=21, daraja="sinov")
     assert r.status_code == 200, r.text
     u = _user()

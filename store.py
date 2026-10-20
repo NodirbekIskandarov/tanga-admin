@@ -355,7 +355,13 @@ def settings_save(values: dict[str, str], admin: str) -> None:
 # --------------------------------------------------------------------------- #
 
 def access_state(row, owner_ids: set[int]) -> str:
-    """Bot bilan bir xil mantiq: ega / bloklangan / obunachi / sinov / tugagan."""
+    """Bot bilan bir xil mantiq: ega / bloklangan / obunachi / sinov / bepul.
+
+    «bepul» — sinovi yoki obunasi tugagan, lekin botdan foydalanishda
+    davom etadigan odam: bot 2026-10-03 dan beri hech kimni yopmaydi,
+    Bepul darajaga o'tkazadi. Ilgari bu holat «tugagan» deb atalardi va
+    panelda yo'qotilgan foydalanuvchidek (qizil) ko'rinardi.
+    """
     if row["user_id"] in owner_ids:
         return "ega"
     if row["blocked"]:
@@ -367,7 +373,30 @@ def access_state(row, owner_ids: set[int]) -> str:
     trial = _parse(row["trial_ends_at"])
     if trial and trial > now:
         return "sinov"
-    return "tugagan"
+    return "bepul"
+
+
+# Aloqa segmentlari — holatdan (obuna) farqli, odam BIZGA yetib boradimi
+# va umuman boshlaganmi degan savolga javob. 87 foydalanuvchidan 39 tasi
+# botni bloklagani (2026-10) holat filtrida umuman ko'rinmasdi.
+SEGMENTLAR = {
+    "yetib_boradi": "Xabar yetib boradi",
+    "bloklagan": "Botni bloklagan",
+    "rozilik_yoq": "Rozilik bermagan",
+    "yozmagan": "Hech yozmagan",
+}
+
+
+def _in_segment(r: dict, segment: str) -> bool:
+    if segment == "bloklagan":
+        return bool(r.get("bot_blocked"))
+    if segment == "rozilik_yoq":
+        return not r.get("consented")
+    if segment == "yozmagan":
+        return r.get("tx_count", 0) == 0
+    if segment == "yetib_boradi":
+        return reachable(r)
+    return True
 
 
 def days_left(row) -> int | None:
@@ -395,11 +424,16 @@ def _days_since(raw) -> int | None:
 
 def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = None,
                sort: str = "yangi", limit: int = 50, offset: int = 0,
-               plan: str = "", activity: str = "") -> tuple[list, int]:
-    """Foydalanuvchilar ro'yxati. Holat, tarif va faollik bo'yicha filtr
-    Python tomonida — ular sana taqqoslashiga bog'liq va foydalanuvchilar
-    soni kichik."""
+               plan: str = "", activity: str = "", segment: str = "",
+               lang: str = "", source: str = "") -> tuple[list, int]:
+    """Foydalanuvchilar ro'yxati. Holat, tarif, faollik, aloqa segmenti
+    (SEGMENTLAR), til va reklama manbasi bo'yicha filtr Python tomonida —
+    ular sana taqqoslashiga bog'liq va foydalanuvchilar soni kichik.
+
+    `source="-"` — manbasiz (to'g'ridan-to'g'ri kelgan) odamlar."""
     owner_ids = owner_ids or set()
+    if state == "tugagan":            # eski nom — saqlangan havola/filtr
+        state = "bepul"
     where, params = [], []
     if search.strip():
         needle = f"%{search.strip().lower()}%"
@@ -441,9 +475,20 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
             else r.get("subscribed_until") or r.get("trial_ends_at")
         )
         r["idle_days"] = _days_since(r.get("last_seen_at"))
+        r["bot_blocked"] = bool(r.get("bot_blocked_at"))
+        r["consented"] = bool(r.get("consent_at"))
+        r["lang"] = r.get("lang") or "uz"
+        r["source"] = r.get("source") or ""
 
     if state:
         rows = [r for r in rows if r["state"] == state]
+    if segment:
+        rows = [r for r in rows if _in_segment(r, segment)]
+    if lang:
+        rows = [r for r in rows if r["lang"] == lang]
+    if source:
+        wanted = "" if source == "-" else source
+        rows = [r for r in rows if r["source"] == wanted]
     if plan:
         rows = [r for r in rows if r["plan_code"] == plan]
     if activity:
@@ -461,6 +506,29 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
     rows.sort(key=keys.get(sort, keys["yangi"]), reverse=True)
 
     return rows[offset:offset + limit], len(rows)
+
+
+def audience_summary(owner_ids: set[int] | None = None) -> dict:
+    """Ro'yxat ustidagi filtrlar uchun bitta o'tishda: aloqa segmentlari,
+    reklama manbalari va tillar bo'yicha sonlar. Egalar sanalmaydi."""
+    owner_ids = owner_ids or set()
+    rows, _ = list_users(owner_ids=owner_ids, limit=10**9)
+    rows = [r for r in rows if r["user_id"] not in owner_ids]
+    sources: dict[str, int] = {}
+    langs: dict[str, int] = {}
+    for r in rows:
+        sources[r["source"]] = sources.get(r["source"], 0) + 1
+        langs[r["lang"]] = langs.get(r["lang"], 0) + 1
+    return {
+        "segments": {key: sum(1 for r in rows if _in_segment(r, key)) for key in SEGMENTLAR},
+        "sources": [{"source": k, "count": n}
+                    for k, n in sorted(sources.items(), key=lambda kv: (-kv[1], kv[0]))],
+        "langs": langs,
+    }
+
+
+def segment_counts(owner_ids: set[int] | None = None) -> dict:
+    return audience_summary(owner_ids)["segments"]
 
 
 def activity_counts(owner_ids: set[int] | None = None) -> dict:
@@ -517,6 +585,29 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
             "SELECT COALESCE(SUM(amount), 0) FROM payments "
             "WHERE user_id = ? AND voided_at IS NULL",
             (user_id,)).fetchone()[0])
+        u["bot_blocked"] = bool(u.get("bot_blocked_at"))
+        u["consented"] = bool(u.get("consent_at"))
+        # Taklif zanjiri: kim chaqirgan va o'zi nechtani chaqirgan.
+        u["referrer"] = None
+        u["referrals"] = 0
+        if _has_column(c, "users", "referred_by"):
+            if u.get("referred_by"):
+                ref = c.execute(
+                    "SELECT user_id, first_name, username FROM users WHERE user_id = ?",
+                    (u["referred_by"],)).fetchone()
+                u["referrer"] = (dict(ref) if ref
+                                 else {"user_id": u["referred_by"], "first_name": "",
+                                       "username": None})
+            u["referrals"] = int(c.execute(
+                "SELECT COUNT(*) FROM users WHERE referred_by = ?",
+                (user_id,)).fetchone()[0])
+        # Bot yozgan hodisalar (start, paywall, sinov tugadi...) — odam
+        # nega to'xtaganini tushunish uchun. Moliyaviy mazmun yo'q.
+        u["events"] = []
+        if _has_table(c, "events"):
+            u["events"] = [dict(r) for r in c.execute(
+                "SELECT name, detail, day, created_at FROM events "
+                "WHERE user_id = ? ORDER BY id DESC LIMIT 20", (user_id,)).fetchall()]
     return u
 
 
@@ -919,7 +1010,7 @@ def stats(owner_ids: set[int]) -> dict:
             "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
             (month_start,)).fetchone()[0])
 
-    states = {"ega": 0, "obunachi": 0, "sinov": 0, "tugagan": 0, "bloklangan": 0}
+    states = {"ega": 0, "obunachi": 0, "sinov": 0, "bepul": 0, "bloklangan": 0}
     for u in users:
         states[access_state(u, owner_ids)] += 1
 
@@ -936,12 +1027,12 @@ def stats(owner_ids: set[int]) -> dict:
     # Ketganlar: obunasi yoki sinovi tugagan va 30 kundan beri kirmagan.
     churned = 0
     for u in trial_users:
-        if access_state(u, owner_ids) != "tugagan":
+        if access_state(u, owner_ids) != "bepul":
             continue
         idle = _days_since(u["last_seen_at"])
         if idle is not None and idle >= 30:
             churned += 1
-    base = max(1, states["obunachi"] + states["tugagan"])
+    base = max(1, states["obunachi"] + states["bepul"])
 
     by_plan: dict[str, int] = {}
     for p in payments:
@@ -1090,7 +1181,7 @@ def overview(owner_ids: set[int]) -> dict:
             "WHERE created_at >= ? AND voided_at IS NULL",
             (today().replace(day=1).isoformat(),)).fetchone()[0])
 
-    states = {"ega": 0, "obunachi": 0, "sinov": 0, "tugagan": 0, "bloklangan": 0}
+    states = {"ega": 0, "obunachi": 0, "sinov": 0, "bepul": 0, "bloklangan": 0}
     active_7 = 0
     for u in users:
         states[access_state(u, owner_ids)] += 1
@@ -1115,6 +1206,8 @@ def overview(owner_ids: set[int]) -> dict:
         "profit_month": round(revenue_month - cost_month * settings.USD_RATE),
         "conversion": round(100 * payers / total_nonowner, 1),
         "pending": pending_count(),
+        # Aloqa: yetib boradi / botni bloklagan / rozilik yo'q / hech yozmagan.
+        "churn": segment_counts(owner_ids),
     }
 
 

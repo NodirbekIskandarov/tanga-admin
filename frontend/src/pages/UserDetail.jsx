@@ -7,9 +7,9 @@ import {
 } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import {
-  Av, Card, Empty, ErrorBox, Kpi, Loading, Tag, useConfirm,
+  Av, Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag, useConfirm,
 } from "../components/common";
-import { amalNomi, day, som, usd } from "../lib/format";
+import { amalNomi, day, som, tilNomi, usd, voqeaNomi } from "../lib/format";
 
 export default function UserDetail() {
   const { id } = useParams();
@@ -323,6 +323,61 @@ export default function UserDetail() {
         </div>
 
         <div className="stack">
+          <Card title="Profil">
+            <div className="pad">
+              <Facts>
+                <Fact label="Til" mono={false}>{tilNomi(u.lang)}</Fact>
+                <Fact label="Reklama manbasi" mono={false}>
+                  {u.source || "to'g'ridan-to'g'ri"}
+                </Fact>
+                <Fact label="Rozilik" mono={false}>
+                  {u.consented
+                    ? `${day(u.consent_at)} (${u.consent_version})`
+                    : <Tag kind="warn">bermagan</Tag>}
+                </Fact>
+                <Fact label="Bot bilan aloqa" mono={false}>
+                  {u.bot_blocked
+                    ? <Tag kind="bad">botni bloklagan · {day(u.bot_blocked_at)}</Tag>
+                    : "ochiq"}
+                </Fact>
+                <Fact label="Oxirgi yozuv">{day(u.last_entry_day)}</Fact>
+                <Fact label="Seriya (kun)">
+                  {u.streak ?? 0} · eng uzun {u.best_streak ?? 0}
+                </Fact>
+                <Fact label="Kunlik eslatma" mono={false}>
+                  {u.reminder_off
+                    ? "o'chirilgan"
+                    : u.reminder_hour != null ? `${u.reminder_hour}:00` : "standart"}
+                </Fact>
+                <Fact label="Taklif qilgan" mono={false}>
+                  {u.referrer ? (
+                    <Link to={`/foydalanuvchilar/${u.referrer.user_id}`}>
+                      {u.referrer.first_name || u.referrer.username || u.referrer.user_id}
+                    </Link>
+                  ) : "—"}
+                </Fact>
+                <Fact label="Taklif qilganlari">
+                  {u.referrals} · bonus {u.bonus_days ?? 0} kun
+                </Fact>
+              </Facts>
+            </div>
+          </Card>
+
+          <Card title="Voqealar (bot)">
+            {(u.events || []).length === 0 ? (
+              <Empty>Hodisa yozilmagan.</Empty>
+            ) : (
+              u.events.map((e, i) => (
+                <div className="log-row" key={i}>
+                  <span className="t">{day(e.day)}</span>
+                  <span className="msg">
+                    {voqeaNomi(e.name)}{e.detail ? ` — ${e.detail}` : ""}
+                  </span>
+                </div>
+              ))
+            )}
+          </Card>
+
           <Card title="AI sarfi">
             <div className="tbl-wrap">
               <table>

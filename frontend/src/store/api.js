@@ -63,9 +63,10 @@ export const api = createApi({
     // ---- Foydalanuvchilar ----
     users: build.query({
       query: ({ q = "", holat = "", tarif = "", faollik = "",
+                segment = "", til = "", manba = "",
                 tartib = "yangi", sahifa = 1 }) => ({
         url: "/users",
-        params: { q, holat, tarif, faollik, tartib, sahifa },
+        params: { q, holat, tarif, faollik, segment, til, manba, tartib, sahifa },
       }),
       providesTags: ["Users"],
     }),

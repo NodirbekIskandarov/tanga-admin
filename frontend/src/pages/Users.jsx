@@ -5,13 +5,13 @@ import { setUserFilters } from "../store/uiSlice";
 import Fresh from "../components/Fresh";
 import UserDrawer from "../components/UserDrawer";
 import { Av, Card, Empty, ErrorBox, Loading, Tag } from "../components/common";
-import { day } from "../lib/format";
+import { day, tilNomi } from "../lib/format";
 
 const STATES = [
   ["", "Holat — barchasi"],
   ["obunachi", "Faol"],
   ["sinov", "Sinovda"],
-  ["tugagan", "Muddati tugagan"],
+  ["bepul", "Bepul daraja"],
   ["bloklangan", "Bloklangan"],
   ["ega", "Egalar"],
 ];
@@ -33,6 +33,12 @@ export default function Users() {
   const set = (patch) => dispatch(setUserFilters(patch));
   const plans = data?.plans || [];
   const act = data?.activity || {};
+  const summary = data?.summary || {};
+  const seg = summary.segments || {};
+  const segLabels = data?.segment_labels || {};
+  const sources = summary.sources || [];
+  const filtered = ["holat", "tarif", "faollik", "segment", "til", "manba"]
+    .some((k) => filters[k]) || filters.q;
 
   return (
     <>
@@ -63,6 +69,29 @@ export default function Users() {
             <option key={v} value={v}>{t}</option>
           ))}
         </select>
+        <select value={filters.segment} onChange={(e) => set({ segment: e.target.value })}>
+          <option value="">Aloqa — barchasi</option>
+          {Object.entries(segLabels).map(([v, t]) => (
+            <option key={v} value={v}>{t}</option>
+          ))}
+        </select>
+        <select value={filters.til} onChange={(e) => set({ til: e.target.value })}>
+          <option value="">Til — barchasi</option>
+          {Object.entries(summary.langs || {}).map(([code, n]) => (
+            <option key={code} value={code}>{tilNomi(code)} ({n})</option>
+          ))}
+        </select>
+        {/* Reklama manbasi (/start src_<kanal>) — kanal paydo bo'lgandagina. */}
+        {sources.length > 1 && (
+          <select value={filters.manba} onChange={(e) => set({ manba: e.target.value })}>
+            <option value="">Manba — barchasi</option>
+            {sources.map((s) => (
+              <option key={s.source || "-"} value={s.source || "-"}>
+                {s.source || "to'g'ridan-to'g'ri"} ({s.count})
+              </option>
+            ))}
+          </select>
+        )}
         <span className="spacer" />
         <a className="btn" href="/api/export/users.csv">CSV yuklab olish</a>
       </div>
@@ -84,6 +113,32 @@ export default function Users() {
         <Fresh at={fulfilledTimeStamp} busy={isFetching} />
       </div>
 
+      {/* Aloqa qatori: kimga xabar yetib boradi, kim ketgan, kim boshlamagan. */}
+      <div className="quick">
+        <button onClick={() => set({ segment: "yetib_boradi" })}>
+          Xabar yetib boradi — <span className="mono">{seg.yetib_boradi ?? "—"}</span>
+        </button>
+        <span className="sep">·</span>
+        <button onClick={() => set({ segment: "bloklagan" })}>
+          Botni bloklagan — <span className="mono">{seg.bloklagan ?? "—"}</span>
+        </button>
+        <span className="sep">·</span>
+        <button onClick={() => set({ segment: "rozilik_yoq" })}>
+          Rozilik bermagan — <span className="mono">{seg.rozilik_yoq ?? "—"}</span>
+        </button>
+        <span className="sep">·</span>
+        <button onClick={() => set({ segment: "yozmagan" })}>
+          Hech yozmagan — <span className="mono">{seg.yozmagan ?? "—"}</span>
+        </button>
+        <span className="spacer" />
+        {filtered && (
+          <button onClick={() => set({ q: "", holat: "", tarif: "", faollik: "",
+                                       segment: "", til: "", manba: "" })}>
+            Filtrlarni tozalash ×
+          </button>
+        )}
+      </div>
+
       {error && <ErrorBox error={error} onRetry={refetch} />}
 
       <Card>
@@ -99,6 +154,8 @@ export default function Users() {
                     <th>Username</th>
                     <th>Telegram ID</th>
                     <th>Holat</th>
+                    <th>Aloqa</th>
+                    <th>Til</th>
                     <th>Obuna tugashi</th>
                     <th className="num">Yozuvlar</th>
                     <th className="num">Faollik</th>
@@ -106,7 +163,7 @@ export default function Users() {
                 </thead>
                 <tbody>
                   {data?.items.length === 0 && (
-                    <Empty colSpan={7} title="Mos foydalanuvchi topilmadi">
+                    <Empty colSpan={9} title="Mos foydalanuvchi topilmadi">
                       Qidiruvni qisqartiring yoki filtrni tozalang.
                     </Empty>
                   )}
@@ -122,6 +179,16 @@ export default function Users() {
                       <td className="mono muted">{r.user_id}</td>
                       <td>
                         <Tag kind={r.state}>{r.state}</Tag>
+                      </td>
+                      <td>
+                        {r.bot_blocked
+                          ? <Tag kind="bad">botni bloklagan</Tag>
+                          : !r.consented
+                            ? <Tag kind="warn">rozilik yo'q</Tag>
+                            : <span className="muted">ochiq</span>}
+                      </td>
+                      <td className="mono muted" title={tilNomi(r.lang)}>
+                        {String(r.lang || "uz").toUpperCase()}
                       </td>
                       <td className="mono muted">{day(r.expires_at)}</td>
                       <td className="num">{r.tx_count}</td>
