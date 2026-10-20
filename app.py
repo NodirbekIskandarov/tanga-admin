@@ -628,8 +628,14 @@ def api_stats(session: dict = Depends(current_admin),
 # jadvali), shuning uchun narx va rekvizit ikki joyda ajralib qolmaydi.
 # --------------------------------------------------------------------------- #
 
+# Tarif kodlari ro'yxati bitta joyda — yangi tarif qo'shilganda saqlash
+# va jurnal uni o'zi ko'radi (ilgari kodlar uch joyda qo'lda sanalgan edi).
+PLAN_CODES = [p["code"] for p in plans.DEFAULT_PLANS]
+
+
 class SettingsBody(BaseModel):
     plan_price_1m: int = Field(0, ge=0, le=100_000_000)
+    plan_price_1w: int = Field(0, ge=0, le=100_000_000)
     plan_price_3m: int = Field(0, ge=0, le=100_000_000)
     plan_price_6m: int = Field(0, ge=0, le=100_000_000)
     plan_price_12m: int = Field(0, ge=0, le=100_000_000)
@@ -663,11 +669,7 @@ def api_settings_save(request: Request, body: SettingsBody,
     admin = session["u"]
     before = {p["code"]: p["price"] for p in plans.all_plans()}
     values = {
-        "plan_price_1m": body.plan_price_1m,
-        "plan_price_3m": body.plan_price_3m,
-        "plan_price_6m": body.plan_price_6m,
-        "plan_price_12m": body.plan_price_12m,
-        "plan_price_f12": body.plan_price_f12,
+        **{f"plan_price_{code}": getattr(body, f"plan_price_{code}") for code in PLAN_CODES},
         "card_number": body.card_number.strip(),
         "card_holder": body.card_holder.strip(),
         "trial_days": body.trial_days,
@@ -675,13 +677,13 @@ def api_settings_save(request: Request, body: SettingsBody,
         "ai_user_monthly_budget_usd": body.ai_user_monthly_budget_usd,
     }
     # Narx nolga tushib qolmasin: 0 kelsa «o'zgartirilmadi» degani.
-    for code in ("1m", "3m", "6m", "12m", "f12"):
+    for code in PLAN_CODES:
         if not values[f"plan_price_{code}"]:
             values[f"plan_price_{code}"] = before[code]
 
     store.settings_save(values, admin)
     changed = [f"{code}: {before[code]} → {values[f'plan_price_{code}']}"
-               for code in ("1m", "3m", "6m", "12m", "f12")
+               for code in PLAN_CODES
                if before[code] != values[f"plan_price_{code}"]]
     store.log_action(admin, "sozlamalar o'zgartirildi", "",
                      "; ".join(changed)[:200] or "rekvizit/limit",

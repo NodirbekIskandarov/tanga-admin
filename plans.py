@@ -14,6 +14,9 @@ from __future__ import annotations
 DEFAULT_PLANS = [
     {"code": "1m", "days": 30, "months": 1, "price": 19_000, "label": "Oylik",
      "public": True},
+    # Haftalik — sinab ko'rish uchun; bot bilan bir xil kod, muddat va narx.
+    {"code": "1w", "days": 7, "months": 0.25, "price": 6_900, "label": "Haftalik",
+     "public": True},
     # 3 va 6 oylik endi sotilmaydi, lekin eski to'lov va so'rovlar shu kodlar
     # bilan nomlanadi — ro'yxatda qoladi.
     {"code": "3m", "days": 90, "months": 3, "price": 99_000, "label": "3 oylik",

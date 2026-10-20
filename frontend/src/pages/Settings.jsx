@@ -44,11 +44,10 @@ export default function Settings() {
   async function onSave() {
     try {
       const res = await save({
-        plan_price_1m: toNumber(prices["1m"]),
-        plan_price_3m: toNumber(prices["3m"]),
-        plan_price_6m: toNumber(prices["6m"]),
-        plan_price_12m: toNumber(prices["12m"]),
-        plan_price_f12: toNumber(prices["f12"]),
+        // Barcha tariflar — ro'yxat serverdan keladi, kodlar bu yerda sanalmaydi.
+        ...Object.fromEntries(
+          Object.entries(prices).map(([code, v]) => [`plan_price_${code}`, toNumber(v)])
+        ),
         card_number: bot.card_number.trim(),
         card_holder: bot.card_holder.trim(),
         trial_days: Number(bot.trial_days) || 7,
