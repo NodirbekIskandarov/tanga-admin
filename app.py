@@ -16,6 +16,7 @@ import logging
 import mimetypes
 import os
 import secrets
+from urllib.parse import unquote
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -770,14 +771,107 @@ def api_broadcast_info(session: dict = Depends(current_admin)):
         "segments": SEGMENTS, "counts": counts,
         "langs": LANGS, "byLang": by_lang,
         "langCounts": store.lang_counts(OWNER_IDS),
+        "video": {"max_mb": VIDEO_MAX_BYTES // (1024 * 1024),
+                  "caption_limit": VIDEO_CAPTION_LIMIT,
+                  "types": list(VIDEO_TYPES)},
     }
 
 
 class BroadcastBody(BaseModel):
     segment: str = Field(max_length=20)
-    matn: str = Field(min_length=1, max_length=3500)
+    # Bo'sh bo'lishi mumkin — video o'zi xabar bo'ladi (pastda tekshiriladi).
+    matn: str = Field("", max_length=3500)
     til: str = Field("", max_length=5)
     tasdiq: bool = False
+    # Oldindan yuklangan video (POST /api/broadcast/video) — matn uning izohi.
+    video_id: str = Field("", max_length=64)
+
+
+# --------------------------------------------------------------------------- #
+# Reklama videosi
+#
+# Fayl panelga yuklanadi va vaqtincha diskda turadi (.videos/, xizmat
+# yoza oladigan yagona joy — ProtectSystem=strict). Yuborishda Telegram'ga
+# BIR MARTA yuklanadi, qolganlarga file_id ketadi. Ish tugagach fayl
+# o'chiriladi; jarayon qayta ishga tushsa yetim fayllar keyingi
+# yuklashda tozalanadi.
+# --------------------------------------------------------------------------- #
+
+VIDEO_DIR = settings.BASE_DIR / ".videos"
+VIDEO_MAX_BYTES = 50 * 1024 * 1024          # Telegram Bot API yuklash chegarasi
+VIDEO_CAPTION_LIMIT = 1024                  # Telegram: video izohi
+VIDEO_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}
+_pending_videos: dict[str, dict] = {}
+
+
+def _looks_like_video(data: bytes) -> bool:
+    """Content-Type ga emas, fayl boshiga ishonamiz: MP4/MOV («ftyp»
+    4-baytdan) yoki WebM/Matroska (EBML sarlavhasi)."""
+    return (len(data) > 12 and data[4:8] == b"ftyp") or data.startswith(b"\x1a\x45\xdf\xa3")
+
+
+def _forget_video(video_id: str) -> None:
+    meta = _pending_videos.pop(video_id, None)
+    if meta:
+        try:
+            Path(meta["path"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _sweep_videos() -> None:
+    """Ro'yxatda yo'q (eski jarayondan qolgan) fayllarni olib tashlaydi."""
+    known = {Path(m["path"]).name for m in _pending_videos.values()}
+    try:
+        for f in VIDEO_DIR.iterdir():
+            if f.is_file() and f.name not in known:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+@app.post("/api/broadcast/video")
+async def api_broadcast_video(request: Request, session: dict = Depends(writer)):
+    """Videoni qabul qiladi (xom bayt, multipart emas — qo'shimcha kutubxona
+    kerak emas). Qaytaradi: {video_id, name, size} — POST /api/broadcast
+    ga `video_id` sifatida beriladi."""
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        declared = 0
+    if declared > VIDEO_MAX_BYTES:
+        raise HTTPException(413, f"Video {VIDEO_MAX_BYTES // (1024 * 1024)} MB dan katta")
+    mime = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if mime not in VIDEO_TYPES:
+        raise HTTPException(400, "Faqat MP4, MOV yoki WebM video")
+    data = await request.body()
+    if len(data) > VIDEO_MAX_BYTES:
+        raise HTTPException(413, f"Video {VIDEO_MAX_BYTES // (1024 * 1024)} MB dan katta")
+    if not _looks_like_video(data):
+        raise HTTPException(400, "Fayl video emas yoki buzilgan")
+
+    # Bir vaqtda bitta video kutib turadi — eskisi almashtiriladi.
+    for old in list(_pending_videos):
+        _forget_video(old)
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    _sweep_videos()
+    video_id = secrets.token_hex(8)
+    path = VIDEO_DIR / f"{video_id}{VIDEO_TYPES[mime]}"
+    path.write_bytes(data)
+    raw_name = request.headers.get("x-file-name") or ""
+    name = Path(unquote(raw_name)).name[:80] or f"reklama{VIDEO_TYPES[mime]}"
+    _pending_videos[video_id] = {"path": str(path), "name": name,
+                                 "size": len(data), "mime": mime}
+    store.log_action(session["u"], "video yuklandi", "",
+                     f"{name} ({len(data) // 1024} KB)", client_ip(request))
+    return {"video_id": video_id, "name": name, "size": len(data),
+            "caption_limit": VIDEO_CAPTION_LIMIT}
+
+
+@app.delete("/api/broadcast/video/{video_id}")
+def api_broadcast_video_delete(video_id: str, session: dict = Depends(writer)):
+    _forget_video(video_id)
+    return {"deleted": True}
 
 
 # Ommaviy xabar FONDA yuboriladi: bitta HTTP so'rovda yuzlab xabar yuborish
@@ -795,13 +889,20 @@ def _job_view(job: dict | None) -> dict | None:
     return {"id": job["id"], "total": job["total"], "ok": job["ok"],
             "failed": job["failed"], "sent": sent, "done": job["done"],
             "target": job["target"], "errors": job["errors"],
-            "error": job.get("error", "")}
+            "error": job.get("error", ""), "video": bool(job.get("video"))}
 
 
 async def _run_broadcast(job: dict, ids: list[int], text: str, admin: str,
-                         ip: str) -> None:
+                         ip: str, video_id: str = "") -> None:
+    video = None
+    meta = _pending_videos.get(video_id) if video_id else None
     try:
-        result = await telegram.broadcast(ids, text, progress=job)
+        if meta:
+            video = (meta["name"], Path(meta["path"]).read_bytes())
+        # Video avval egaga yuklanadi — unga nusxa ham boradi (sinov).
+        owner = next(iter(sorted(OWNER_IDS)), None) if video else None
+        result = await telegram.broadcast(ids, text, progress=job, video=video,
+                                          upload_chat=owner)
         # Botni bloklaganlar belgilanadi — keyingi safar ular auditoriyaga
         # tushmaydi, bot ham ularga avtomatik xabar yubormaydi.
         store.mark_bot_blocked(result.get("blocked_ids", []))
@@ -810,8 +911,11 @@ async def _run_broadcast(job: dict, ids: list[int], text: str, admin: str,
         job["error"] = str(exc)[:200]
     finally:
         job["done"] = True
+        if video_id:
+            _forget_video(video_id)
         store.log_action(admin, "ommaviy xabar", job["target"],
-                         f"{job['ok']} yuborildi, {job['failed']} xato "
+                         ("🎬 video · " if video else "")
+                         + f"{job['ok']} yuborildi, {job['failed']} xato "
                          f"(jami {job['total']}) | {text[:100]}", ip)
 
 
@@ -829,6 +933,13 @@ async def api_broadcast(request: Request, body: BroadcastBody,
     if _broadcast_job is not None and not _broadcast_job["done"]:
         raise HTTPException(409, "Oldingi yuborish hali tugamadi. Kuting.")
     text = body.matn.strip()
+    video_id = body.video_id.strip()
+    if video_id and video_id not in _pending_videos:
+        raise HTTPException(400, "Video topilmadi — qaytadan yuklang")
+    if video_id and len(text) > VIDEO_CAPTION_LIMIT:
+        raise HTTPException(400, f"Video izohi {VIDEO_CAPTION_LIMIT} belgidan oshmasin")
+    if not text and not video_id:
+        raise HTTPException(400, "Matn yoki video kerak")
     ids = _audience(body.segment, body.til)
     if not ids:
         raise HTTPException(400, "Qabul qiluvchi yo'q.")
@@ -836,9 +947,10 @@ async def api_broadcast(request: Request, body: BroadcastBody,
     if body.til:
         target += f" · {LANGS[body.til]}"
     _broadcast_job = {"id": secrets.token_hex(4), "total": len(ids), "ok": 0,
-                      "failed": 0, "errors": {}, "done": False, "target": target}
+                      "failed": 0, "errors": {}, "done": False, "target": target,
+                      "video": bool(video_id)}
     background.add_task(_run_broadcast, _broadcast_job, ids, text,
-                        session["u"], client_ip(request))
+                        session["u"], client_ip(request), video_id)
     return {"message": f"Yuborish boshlandi — {len(ids)} kishi.",
             "job": _job_view(_broadcast_job)}
 

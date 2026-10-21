@@ -138,6 +138,22 @@ export const api = createApi({
       query: (body) => ({ url: "/broadcast", method: "POST", body }),
       invalidatesTags: ["Broadcast"],
     }),
+    // Reklama videosi: fayl xom bayt sifatida ketadi (multipart emas),
+    // nomi sarlavhada. Javob — video_id, u sendBroadcast'ga beriladi.
+    uploadBroadcastVideo: build.mutation({
+      query: (file) => ({
+        url: "/broadcast/video",
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": file.type || "video/mp4",
+          "X-File-Name": encodeURIComponent(file.name || "video.mp4"),
+        },
+      }),
+    }),
+    removeBroadcastVideo: build.mutation({
+      query: (id) => ({ url: `/broadcast/video/${id}`, method: "DELETE" }),
+    }),
     // Yuborish fonda ketadi — interfeys shu holatni so'rab turadi.
     broadcastJob: build.query({
       query: () => "/broadcast/job",
@@ -176,6 +192,8 @@ export const {
   useSaveSettingsMutation,
   useBroadcastInfoQuery,
   useSendBroadcastMutation,
+  useUploadBroadcastVideoMutation,
+  useRemoveBroadcastVideoMutation,
   useBroadcastJobQuery,
   useVoidPaymentMutation,
   useLogQuery,
