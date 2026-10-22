@@ -11,6 +11,7 @@ import Users from "./pages/Users";
 import UserDetail from "./pages/UserDetail";
 import Broadcast from "./pages/Broadcast";
 import Stats from "./pages/Stats";
+import System from "./pages/System";
 import Finance from "./pages/Finance";
 import Log from "./pages/Log";
 import Settings from "./pages/Settings";
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="/foydalanuvchilar" element={<Users />} />
           <Route path="/xabar" element={<Broadcast />} />
           <Route path="/statistika" element={<Stats />} />
+          <Route path="/tizim" element={<System />} />
           <Route path="/jurnal" element={<Log />} />
           <Route path="/sozlamalar" element={<Settings />} />
 

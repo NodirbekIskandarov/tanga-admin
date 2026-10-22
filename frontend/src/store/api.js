@@ -31,8 +31,7 @@ export const api = createApi({
   baseQuery: baseQueryWithAuth,
   tagTypes: [
     "Session", "Users", "User", "Requests", "Dashboard", "Finance", "Log",
-    "Settings", "Broadcast",
-  ],
+    "Settings", "Broadcast", "System"],
   endpoints: (build) => ({
     // ---- Sessiya ----
     session: build.query({
@@ -166,6 +165,15 @@ export const api = createApi({
     }),
 
     // ---- Jurnal ----
+    // Tizim holati: bot heartbeat, rejali ishlar, xatolar, voqealar, kategoriyalar.
+    system: build.query({
+      query: () => "/system",
+      providesTags: ["System"],
+    }),
+    updateCategory: build.mutation({
+      query: ({ id, ...body }) => ({ url: `/categories/${id}`, method: "POST", body }),
+      invalidatesTags: ["System", "Dashboard"],
+    }),
     log: build.query({
       query: (sahifa = 1) => ({ url: "/log", params: { sahifa } }),
       providesTags: ["Log"],
@@ -197,4 +205,6 @@ export const {
   useBroadcastJobQuery,
   useVoidPaymentMutation,
   useLogQuery,
+  useSystemQuery,
+  useUpdateCategoryMutation,
 } = api;

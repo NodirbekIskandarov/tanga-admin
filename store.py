@@ -8,6 +8,9 @@ o'z jadvallari (`admin_users`, `admin_log`, `subscription_requests`,
 
 from __future__ import annotations
 
+import json
+import os
+import platform
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -1558,3 +1561,274 @@ def expiring_soon(days: int = 7, owner_ids: set[int] | None = None) -> list:
                 out.append(d)
     out.sort(key=lambda x: x["expires_at"])
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Tizim — bot holati, rejali ishlar, xatolar, voqealar, referal, AI
+# kategoriyalar, kurslar, server/baza. Bot `bot_status`, `job_runs`,
+# `bot_errors` jadvallariga yozadi (tanga/db.py); bu yerda faqat o'qiladi.
+# Shaxsiy baza (yozuvlar) ataylab yopiq — faqat uning hajmi "yopiq" deb
+# ko'rsatiladi.
+# --------------------------------------------------------------------------- #
+
+PANEL_STARTED_AT = datetime.now(settings.TZ)
+BOT_ALIVE_S = 180
+
+
+def _parse_ts(raw) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        d = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=settings.TZ)
+    return d
+
+
+def _git_commit(root) -> str:
+    try:
+        head = (root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            head = (root / ".git" / head[5:]).read_text(encoding="utf-8").strip()
+        return head[:7]
+    except OSError:
+        return ""
+
+
+def _file_size(path: str) -> dict:
+    """{'size': bayt} yoki {'closed': True} (ataylab yopiq) yoki {'missing': True}."""
+    try:
+        return {"size": os.stat(path).st_size}
+    except PermissionError:
+        return {"closed": True}
+    except OSError:
+        return {"missing": True}
+
+
+def server_metrics() -> dict:
+    out: dict = {"cpus": os.cpu_count() or 1}
+    try:
+        out["load"] = [round(x, 2) for x in os.getloadavg()]
+    except OSError:
+        out["load"] = None
+    try:
+        info = {}
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                k, _, v = line.partition(":")
+                info[k] = int(v.strip().split()[0]) * 1024
+        out["mem_total"] = info.get("MemTotal")
+        out["mem_available"] = info.get("MemAvailable")
+    except (OSError, ValueError):
+        out["mem_total"] = out["mem_available"] = None
+    db_dir = os.path.dirname(settings.DB_PATH) or "/"
+    try:
+        st = os.statvfs(db_dir if os.path.isdir(db_dir) else "/")
+        out["disk_total"] = st.f_frsize * st.f_blocks
+        out["disk_free"] = st.f_frsize * st.f_bavail
+    except OSError:
+        out["disk_total"] = out["disk_free"] = None
+    try:
+        with open("/proc/uptime", encoding="utf-8") as f:
+            out["uptime_s"] = int(float(f.read().split()[0]))
+    except (OSError, ValueError):
+        out["uptime_s"] = None
+    main = settings.DB_PATH
+    private = main.replace("tanga.db", "tanga_shaxsiy.db") if "tanga.db" in main else ""
+    out["db"] = {
+        "main": _file_size(main),
+        "wal": _file_size(main + "-wal"),
+        "private": _file_size(private) if private and private != main else {"missing": True},
+    }
+    return out
+
+
+def bot_brief() -> dict:
+    """Dashboard kartasi uchun: tirikmi, so'nggi heartbeat, 24 soatdagi xatolar."""
+    now = datetime.now(settings.TZ)
+    with conn() as c:
+        if not _has_table(c, "bot_status"):
+            return {"known": False, "alive": False, "errors_24h": 0, "last_error": None}
+        status = {r["key"]: r["value"] for r in c.execute("SELECT key, value FROM bot_status")}
+        errors_24h = 0
+        last_error = None
+        if _has_table(c, "bot_errors"):
+            errors_24h = int(c.execute(
+                "SELECT COUNT(*) FROM bot_errors WHERE created_at >= datetime('now', '-1 day')"
+            ).fetchone()[0])
+            row = c.execute(
+                "SELECT kind, place, message, created_at FROM bot_errors ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            last_error = dict(row) if row else None
+    seen = _parse_ts(status.get("last_seen"))
+    started = _parse_ts(status.get("started_at"))
+    stale = int((now - seen).total_seconds()) if seen else None
+    return {
+        "known": bool(status),
+        "alive": stale is not None and stale <= BOT_ALIVE_S,
+        "stale_s": stale,
+        "last_seen": seen.isoformat() if seen else None,
+        "started_at": started.isoformat() if started else None,
+        "uptime_s": int((now - started).total_seconds()) if started else None,
+        "commit": status.get("commit", ""),
+        "errors_24h": errors_24h,
+        "last_error": last_error,
+    }
+
+
+def system_status(owner_ids: set[int]) -> dict:
+    now = datetime.now(settings.TZ)
+    bot = bot_brief()
+    with conn() as c:
+        status = ({r["key"]: r["value"] for r in c.execute("SELECT key, value FROM bot_status")}
+                  if _has_table(c, "bot_status") else {})
+
+        # Rejali ishlar: bot heartbeat'dagi ro'yxat + oxirgi natija + 7 kunlik hisob.
+        try:
+            planned = json.loads(status.get("jobs") or "[]")
+        except ValueError:
+            planned = []
+        last_runs: dict[str, dict] = {}
+        week: dict[str, dict] = {}
+        recent_runs: list[dict] = []
+        if _has_table(c, "job_runs"):
+            for r in c.execute(
+                "SELECT name, started_at, duration_ms, ok, error FROM job_runs "
+                "WHERE id IN (SELECT MAX(id) FROM job_runs GROUP BY name)"):
+                last_runs[r["name"]] = dict(r)
+            since = (now - timedelta(days=7)).isoformat(timespec="seconds")
+            for r in c.execute(
+                "SELECT name, COUNT(*) AS runs, SUM(ok) AS ok_runs, "
+                "ROUND(AVG(duration_ms)) AS avg_ms FROM job_runs "
+                "WHERE started_at >= ? GROUP BY name", (since,)):
+                week[r["name"]] = dict(r)
+            recent_runs = [dict(r) for r in c.execute(
+                "SELECT name, started_at, duration_ms, ok, error FROM job_runs "
+                "ORDER BY id DESC LIMIT 30")]
+        names = {j.get("name") for j in planned} | set(last_runs) | set(week)
+        jobs = []
+        for name in sorted(n for n in names if n):
+            nxt = next((j.get("next") for j in planned if j.get("name") == name), None)
+            jobs.append({"name": name, "next": nxt, "last": last_runs.get(name),
+                         "week": week.get(name)})
+
+        # Xatolar: 24 soat, 14 kunlik taqsimot, oxirgi 50 ta.
+        errors = {"days": [], "recent": [], "total_24h": bot["errors_24h"]}
+        if _has_table(c, "bot_errors"):
+            start = (today() - timedelta(days=13)).isoformat()
+            by_day = {r["day"]: int(r["n"]) for r in c.execute(
+                "SELECT day, COUNT(*) AS n FROM bot_errors WHERE day >= ? GROUP BY day", (start,))}
+            errors["days"] = [{"day": (today() - timedelta(days=13 - i)).isoformat(),
+                               "n": by_day.get((today() - timedelta(days=13 - i)).isoformat(), 0)}
+                              for i in range(14)]
+            errors["recent"] = [dict(r) for r in c.execute(
+                "SELECT id, kind, place, message, update_kind, user_id, created_at "
+                "FROM bot_errors ORDER BY id DESC LIMIT 50")]
+            errors["by_kind"] = [dict(r) for r in c.execute(
+                "SELECT kind, place, COUNT(*) AS n FROM bot_errors "
+                "WHERE created_at >= datetime('now', '-7 day') "
+                "GROUP BY kind, place ORDER BY n DESC LIMIT 10")]
+
+        # Voqealar: tur bo'yicha 7/30 kun, oxirgi 50 ta.
+        events = {"by_name": [], "recent": []}
+        if _has_table(c, "events"):
+            d7 = (today() - timedelta(days=6)).isoformat()
+            d30 = (today() - timedelta(days=29)).isoformat()
+            counts: dict[str, dict] = {}
+            for r in c.execute(
+                "SELECT name, SUM(day >= ?) AS n7, COUNT(*) AS n30 FROM events "
+                "WHERE day >= ? GROUP BY name ORDER BY n30 DESC", (d7, d30)):
+                counts[r["name"]] = {"name": r["name"], "n7": int(r["n7"] or 0), "n30": int(r["n30"])}
+            events["by_name"] = list(counts.values())
+            events["recent"] = [dict(r) for r in c.execute(
+                "SELECT e.id, e.user_id, e.name, e.detail, e.created_at, "
+                "u.first_name, u.username FROM events e "
+                "LEFT JOIN users u ON u.user_id = e.user_id ORDER BY e.id DESC LIMIT 50")]
+            events["today"] = int(c.execute(
+                "SELECT COUNT(*) FROM events WHERE day = ?", (today().isoformat(),)).fetchone()[0])
+
+        # Taklif (referal): kim nechta odam chaqirgan.
+        referrals = {"available": False}
+        if _has_column(c, "users", "referred_by"):
+            referrals = {
+                "available": True,
+                "referred": int(c.execute(
+                    "SELECT COUNT(*) FROM users WHERE referred_by IS NOT NULL").fetchone()[0]),
+                "referrers": int(c.execute(
+                    "SELECT COUNT(DISTINCT referred_by) FROM users "
+                    "WHERE referred_by IS NOT NULL").fetchone()[0]),
+                "bonus_days": (int(c.execute(
+                    "SELECT COALESCE(SUM(bonus_days), 0) FROM users").fetchone()[0])
+                    if _has_column(c, "users", "bonus_days") else None),
+                "top": [dict(r) for r in c.execute(
+                    "SELECT r.referred_by AS user_id, COUNT(*) AS n, u.first_name, u.username "
+                    "FROM users r LEFT JOIN users u ON u.user_id = r.referred_by "
+                    "WHERE r.referred_by IS NOT NULL GROUP BY r.referred_by "
+                    "ORDER BY n DESC LIMIT 10")],
+            }
+
+        categories = []
+        if _has_table(c, "custom_categories"):
+            categories = [dict(r) for r in c.execute(
+                "SELECT id, name, kind, ru, emoji, icon, created_at FROM custom_categories "
+                "ORDER BY id DESC")]
+
+        rates = {"latest": [], "series": []}
+        if _has_table(c, "rates"):
+            rates["latest"] = [dict(r) for r in c.execute(
+                "SELECT currency, day, rate, source FROM rates r "
+                "WHERE day = (SELECT MAX(day) FROM rates WHERE currency = r.currency) "
+                "ORDER BY currency")]
+            rates["series"] = [dict(r) for r in c.execute(
+                "SELECT day, currency, rate FROM rates WHERE day >= ? ORDER BY day, currency",
+                ((today() - timedelta(days=13)).isoformat(),))]
+
+        tables = [dict(r) for r in c.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY name")]
+        table_counts = {}
+        for t in tables:
+            try:
+                table_counts[t["name"]] = int(c.execute(
+                    f'SELECT COUNT(*) FROM "{t["name"]}"').fetchone()[0])
+            except Exception:  # noqa: BLE001 - ko'rinish uchun, muhim emas
+                table_counts[t["name"]] = None
+
+    bot.update({
+        "python": status.get("python", ""),
+        "ptb": status.get("ptb", ""),
+        "pid": status.get("pid", ""),
+        "concurrent_updates": status.get("concurrent_updates", ""),
+        "recent_runs": recent_runs,
+    })
+    return {
+        "now": now.isoformat(timespec="seconds"),
+        "bot": bot,
+        "jobs": jobs,
+        "errors": errors,
+        "events": events,
+        "referrals": referrals,
+        "categories": categories,
+        "rates": rates,
+        "server": server_metrics(),
+        "panel": {
+            "commit": _git_commit(settings.BASE_DIR),
+            "started_at": PANEL_STARTED_AT.isoformat(timespec="seconds"),
+            "uptime_s": int((now - PANEL_STARTED_AT).total_seconds()),
+            "python": platform.python_version(),
+        },
+        "tables": table_counts,
+    }
+
+
+def update_category(cat_id: int, ru: str, emoji: str, icon: str) -> bool:
+    """AI yaratgan kategoriyaning ko'rinishini (ruscha nomi, emoji, ikonka) tuzatadi."""
+    with conn() as c:
+        if not _has_table(c, "custom_categories"):
+            return False
+        cur = c.execute(
+            "UPDATE custom_categories SET ru = ?, emoji = ?, icon = ? WHERE id = ?",
+            (ru.strip()[:60], emoji.strip()[:8], icon.strip()[:32], cat_id))
+        return cur.rowcount > 0

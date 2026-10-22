@@ -31,6 +31,8 @@ def app_module(monkeypatch):
     import app as module
     monkeypatch.setattr(module, "OWNER_IDS", {777})
     monkeypatch.setattr(module, "_broadcast_job", None, raising=False)
+    monkeypatch.setattr(module, "CACHE_TTL", 0, raising=False)
+    module.cache_clear()
     getattr(auth, "_last_totp_step", {}).clear()
     return module
 

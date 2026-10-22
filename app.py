@@ -10,6 +10,7 @@ Ishga tushirish:  uvicorn app:app --host 127.0.0.1 --port 8100
 from __future__ import annotations
 
 import csv
+import functools
 import html
 import io
 import logging
@@ -17,6 +18,7 @@ import mimetypes
 import os
 import secrets
 from urllib.parse import unquote
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -43,6 +45,44 @@ DIST = settings.BASE_DIR / "static" / "dist"
 OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(",", " ").split()
              if x.strip().isdigit()}
 
+# --------------------------------------------------------------------------- #
+# Qisqa kesh (optimallashtirish). Dashboard/statistika/moliya/tizim
+# ekranlari har 20–30 soniyada so'rab turadi va har biri bazadan o'nlab
+# so'rov yig'adi; ikki admin ochib tursa ikki baravar. Natija CACHE_TTL
+# soniya saqlanadi; har qanday yozuvchi (POST/DELETE) so'rovdan keyin
+# darhol tozalanadi — amal qilingach eskirgan raqam ko'rinmaydi.
+# --------------------------------------------------------------------------- #
+CACHE_TTL = float(os.getenv("CACHE_TTL", "15"))
+_CACHE: dict[str, tuple[float, object]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def cached(key: str, ttl: float, compute):
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+    if hit is not None and ttl > 0 and now - hit[0] < ttl:
+        return hit[1]
+    value = compute()
+    with _CACHE_LOCK:
+        _CACHE[key] = (now, value)
+    return value
+
+
+def cache_clear() -> None:
+    with _CACHE_LOCK:
+        _CACHE.clear()
+
+
+def cached_endpoint(fn):
+    """GET endpoint natijasini so'rov parametrlari bo'yicha keshlaydi."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        key = fn.__name__ + "|" + "|".join(
+            f"{k}={v}" for k, v in sorted(kwargs.items()) if k != "session")
+        return cached(key, CACHE_TTL, lambda: fn(*args, **kwargs))
+    return wrapper
+
 
 def _startup() -> None:
     store.init()
@@ -55,6 +95,13 @@ def _startup() -> None:
              settings.DB_PATH, OWNER_IDS or "yo'q")
 
 
+async def _clear_cache_after_write(request: Request, call_next):
+    response = await call_next(request)
+    if request.method != "GET" and response.status_code < 400:
+        cache_clear()
+    return response
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # `on_event("startup")` eskirgan (FastAPI): lifespan o'rniga.
@@ -64,6 +111,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, docs_url=None, redoc_url=None,
               openapi_url=None, lifespan=lifespan)
+app.middleware("http")(_clear_cache_after_write)
 
 
 # --------------------------------------------------------------------------- #
@@ -307,6 +355,7 @@ def api_admins(session: dict = Depends(current_admin)):
 # --------------------------------------------------------------------------- #
 
 @app.get("/api/dashboard")
+@cached_endpoint
 def api_dashboard(session: dict = Depends(current_admin)):
     ov = store.overview(OWNER_IDS)
     expiring = []
@@ -326,6 +375,7 @@ def api_dashboard(session: dict = Depends(current_admin)):
         "activity": store.activity_counts(OWNER_IDS),
         "log": [dict(r) for r in store.list_log(8, 0)],
         "usd_rate": settings.USD_RATE,
+        "bot": store.bot_brief(),
     }
 
 
@@ -606,6 +656,7 @@ async def api_request_decide(request: Request, req_id: int, body: RequestDecisio
 # --------------------------------------------------------------------------- #
 
 @app.get("/api/stats")
+@cached_endpoint
 def api_stats(session: dict = Depends(current_admin),
               davr: str = Query("oylik", max_length=10)):
     if davr not in ("kunlik", "oylik", "yillik"):
@@ -697,6 +748,7 @@ def api_settings_save(request: Request, body: SettingsBody,
 # --------------------------------------------------------------------------- #
 
 @app.get("/api/cashflow")
+@cached_endpoint
 def api_cashflow(session: dict = Depends(current_admin),
                  davr: str = Query("kun", max_length=8),
                  nuqta: int = Query(0, ge=0, le=90)):
@@ -714,6 +766,7 @@ def api_cashflow(session: dict = Depends(current_admin),
 
 
 @app.get("/api/finance")
+@cached_endpoint
 def api_finance(session: dict = Depends(current_admin),
                 kun: int = Query(30, ge=7, le=365)):
     ov = store.overview(OWNER_IDS)
@@ -911,6 +964,7 @@ async def _run_broadcast(job: dict, ids: list[int], text: str, admin: str,
         job["error"] = str(exc)[:200]
     finally:
         job["done"] = True
+        cache_clear()
         if video_id:
             _forget_video(video_id)
         store.log_action(admin, "ommaviy xabar", job["target"],
@@ -960,6 +1014,35 @@ def api_broadcast_job(session: dict = Depends(current_admin)):
     """Oxirgi ommaviy yuborishning jonli holati (interfeys so'rab turadi)."""
     return {"job": _job_view(_broadcast_job)}
 
+
+
+# --------------------------------------------------------------------------- #
+# Tizim — bot holati, rejali ishlar, xatolar, voqealar, referal, AI
+# kategoriyalar, kurslar, server. Shaxsiy yozuvlar yo'q (baza yopiq).
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/system")
+@cached_endpoint
+def api_system(session: dict = Depends(current_admin)):
+    return store.system_status(OWNER_IDS)
+
+
+class CategoryBody(BaseModel):
+    ru: str = Field("", max_length=60)
+    emoji: str = Field("", max_length=8)
+    icon: str = Field("", max_length=32)
+
+
+@app.post("/api/categories/{cat_id}")
+def api_category_update(request: Request, cat_id: int, body: CategoryBody,
+                        session: dict = Depends(writer)):
+    """AI yaratgan kategoriyaning ko'rinishini tuzatish (nomi o'zgarmaydi —
+    u foydalanuvchi yozuvlarida kalit sifatida turadi)."""
+    if not store.update_category(cat_id, body.ru, body.emoji, body.icon):
+        raise HTTPException(404, "Kategoriya topilmadi")
+    store.log_action(session["u"], "kategoriya tuzatildi", str(cat_id),
+                     f"{body.emoji} {body.ru}".strip(), client_ip(request))
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

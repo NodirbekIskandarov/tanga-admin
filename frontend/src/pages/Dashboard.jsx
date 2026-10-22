@@ -51,6 +51,21 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Bot jarayoni holati — heartbeat (Tizim sahifasidan qisqacha). */}
+      {data.bot && (
+        <div className={`note ${!data.bot.known ? "warn" : data.bot.alive ? "ok" : "bad"}`}>
+          <span className="grow">
+            🤖{" "}
+            {!data.bot.known
+              ? "Bot holati noma'lum — heartbeat hali yozilmagan."
+              : data.bot.alive
+                ? <>Bot <b>ishlayapti</b> · {data.bot.uptime_s != null ? `${Math.floor(data.bot.uptime_s / 3600)} soat` : "—"} · commit {data.bot.commit || "—"} · 24 soatda {data.bot.errors_24h} xato</>
+                : <><b>Bot javob bermayapti</b> — oxirgi heartbeat {dt(data.bot.last_seen)}</>}
+          </span>
+          <Link className="btn sm" to="/tizim">Tizim</Link>
+        </div>
+      )}
+
       {/* Kunlik va haftalik pul oqimi — egasi birinchi qaraydigan raqam,
           shuning uchun oylik ko'rsatkichlardan ham tepada turadi. */}
       <Cashflow />

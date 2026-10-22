@@ -69,6 +69,25 @@ CREATE TABLE events (
     name TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', day TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS bot_status (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, started_at TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS bot_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, place TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '', update_kind TEXT NOT NULL DEFAULT '', user_id INTEGER,
+    day TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS custom_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL,
+    ru TEXT NOT NULL DEFAULT '', emoji TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS rates (
+    day TEXT NOT NULL, currency TEXT NOT NULL, rate REAL NOT NULL,
+    source TEXT NOT NULL DEFAULT '', PRIMARY KEY (day, currency));
 """
 
 

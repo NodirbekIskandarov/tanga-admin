@@ -14,6 +14,7 @@ const NAV = [
   { to: "/foydalanuvchilar", label: "Foydalanuvchilar" },
   { to: "/xabar", label: "Xabarlar" },
   { to: "/statistika", label: "Statistika" },
+  { to: "/tizim", label: "Tizim" },
   { to: "/jurnal", label: "Jurnal" },
   { to: "/sozlamalar", label: "Sozlamalar" },
 ];
@@ -24,6 +25,7 @@ const TITLES = {
   "/foydalanuvchilar": "Foydalanuvchilar",
   "/xabar": "Ommaviy xabar",
   "/statistika": "Statistika",
+  "/tizim": "Tizim holati",
   "/jurnal": "Jurnal",
   "/sozlamalar": "Sozlamalar",
   "/moliya": "Moliya va AI sarfi",
