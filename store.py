@@ -9,6 +9,7 @@ o'z jadvallari (`admin_users`, `admin_log`, `subscription_requests`,
 from __future__ import annotations
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
@@ -136,16 +137,28 @@ def _open(path: str, timeout: int):
     return c
 
 
+# Ulanishni ochish/yopish bitta qulf ostida. Sabab (2026-10-22): panel
+# qotib qoldi — py-spy ikki ishchi oqimni ko'rsatdi, biri SQLCipher
+# ulanishini ochayotgan (`_open`), ikkinchisi yopayotgan (`c.close()`),
+# ikkalasi ham mutex kutib turibdi. SQLCipher kalit/provayder mutexlari
+# ulanish ochilayotganda va yopilayotganda olinadi; bir vaqtda ikki oqimdan
+# chaqirilganda deadlock bo'ldi. So'rovlarning o'zi qulfdan tashqarida
+# bajariladi — faqat ochish va yopish ketma-ket.
+_OPEN_LOCK = threading.Lock()
+
+
 @contextmanager
 def conn():
-    c = _open(settings.DB_PATH, timeout=15)
-    c.execute("PRAGMA journal_mode = WAL")
-    c.execute("PRAGMA busy_timeout = 15000")
+    with _OPEN_LOCK:
+        c = _open(settings.DB_PATH, timeout=15)
+        c.execute("PRAGMA journal_mode = WAL")
+        c.execute("PRAGMA busy_timeout = 15000")
     try:
         yield c
         c.commit()
     finally:
-        c.close()
+        with _OPEN_LOCK:
+            c.close()
 
 
 # Keyin qo'shilgan ustunlar: (jadval, ustun, SQL). Bot loyihasidagi

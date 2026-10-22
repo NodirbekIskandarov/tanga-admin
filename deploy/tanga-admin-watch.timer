@@ -1,0 +1,10 @@
+[Unit]
+Description=Har 2 daqiqada tanga-admin salomatligini tekshirish
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target

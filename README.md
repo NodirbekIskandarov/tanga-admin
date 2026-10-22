@@ -160,3 +160,7 @@ buni tekshiradi.
 pip install -r requirements-dev.txt
 pytest          # vaqtinchalik bazada, tarmoqsiz (Telegram soxtalashtiriladi)
 ```
+
+### Salomatlik nazorati
+
+`deploy/tanga-admin-watch.{sh,service,timer}` — serverda har 2 daqiqada `/salomatlik` tekshiriladi; ketma-ket ikki marta javob bo'lmasa `tanga-admin` qayta ishga tushadi (jurnal: `journalctl -t tanga-admin-watch`). Sabab: 2026-10-22 da SQLCipher ulanishini ikki oqimdan bir vaqtda ochish/yopish deadlock berib, panel qotib qolgan edi — `store.conn()` endi ochish/yopishni qulf ostida bajaradi.

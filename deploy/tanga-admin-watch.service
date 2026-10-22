@@ -1,0 +1,7 @@
+[Unit]
+Description=Tanga admin panel salomatlik tekshiruvi
+After=tanga-admin.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tanga-admin-watch.sh
