@@ -167,3 +167,5 @@ pytest          # vaqtinchalik bazada, tarmoqsiz (Telegram soxtalashtiriladi)
 `deploy/tanga-admin-watch.{sh,service,timer}` — serverda har 2 daqiqada `/salomatlik` tekshiriladi; ketma-ket ikki marta javob bo'lmasa `tanga-admin` qayta ishga tushadi (jurnal: `journalctl -t tanga-admin-watch`). Sabab: 2026-10-22 da SQLCipher ulanishini ikki oqimdan bir vaqtda ochish/yopish deadlock berib, panel qotib qolgan edi — `store.conn()` endi ochish/yopishni qulf ostida bajaradi.
 
 Og'ir GET so'rovlar (dashboard, statistika, moliya, pul oqimi, tizim) `CACHE_TTL` soniya (standart 15) keshlanadi; har qanday yozuvchi so'rovdan keyin kesh tozalanadi.
+
+**AI xarajati** (Moliya sahifasi): `GET /api/ai-cost?davr=kun|hafta|oy|yil&nuqta=N` — tanlangan kesimda ustunli grafik va aniq qiymatlar jadvali ($, so'm, chaqiruvlar, tokenlar, 1 chaqiruv tannarxi); oxirgi davr tugamagan bo'lsa belgilanadi.

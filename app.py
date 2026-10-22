@@ -765,6 +765,15 @@ def api_cashflow(session: dict = Depends(current_admin),
     return store.cashflow(davr, nuqta)
 
 
+@app.get("/api/ai-cost")
+@cached_endpoint
+def api_ai_cost(session: dict = Depends(current_admin),
+                davr: str = Query("kun", max_length=8),
+                nuqta: int = Query(0, ge=0, le=90)):
+    """AI xarajati kun · hafta · oy · yil kesimida (grafik + aniq qiymatlar)."""
+    return store.ai_cost_series(davr, nuqta)
+
+
 @app.get("/api/finance")
 @cached_endpoint
 def api_finance(session: dict = Depends(current_admin),

@@ -107,3 +107,47 @@ def test_get_cache_is_cleared_by_writes(client, app_module, monkeypatch):  # noq
     client.get("/api/system")
     assert calls["n"] == 2
     app_module.CACHE_TTL = 0
+
+
+# ------------------------------------------------------------ AI xarajati --
+
+def _usage(day, cost, inp=100, outp=20, op="chek"):
+    _exec("INSERT INTO usage_log (user_id, day, operation, model, input_tokens, output_tokens, cost_usd) "
+          "VALUES (?, ?, ?, ?, ?, ?, ?)", 1, day, op, "gemini", inp, outp, cost)
+
+
+def test_ai_cost_series_day_week_month_year(client, app_module):  # noqa: F811
+    app_module.CACHE_TTL = 0
+    t = store.today()
+    _usage(t.isoformat(), 0.0125)
+    _usage(t.isoformat(), 0.0075, op="matn")
+    _usage((t - timedelta(days=1)).isoformat(), 0.03)
+    _usage((t - timedelta(days=40)).isoformat(), 1.0)
+    _usage((t - timedelta(days=400)).isoformat(), 5.0)
+
+    d = client.get("/api/ai-cost", params={"davr": "kun"}).json()
+    assert d["period"] == "kun" and d["points"] == 30 and len(d["items"]) == 30
+    last, prev = d["items"][-1], d["items"][-2]
+    assert last["start"] == t.isoformat() and last["cost_usd"] == 0.02 and last["calls"] == 2
+    assert last["tokens_in"] == 200 and last["per_call_usd"] == 0.01
+    assert prev["cost_usd"] == 0.03 and d["total_usd"] == 0.05 and d["calls"] == 3
+    assert d["max_usd"] == 0.03 and d["avg_usd"] == 0.025
+    assert {o["operation"] for o in d["by_operation"]} == {"chek", "matn"}
+    assert last["cost_som"] == round(0.02 * settings.USD_RATE)
+
+    w = client.get("/api/ai-cost", params={"davr": "hafta", "nuqta": 8}).json()
+    assert w["points"] == 8 and w["items"][-1]["partial"] in (True, False)
+    assert sum(i["calls"] for i in w["items"]) >= 2
+
+    m = client.get("/api/ai-cost", params={"davr": "oy"}).json()
+    assert m["points"] == 12 and m["items"][-1]["start"] == t.replace(day=1).isoformat()
+    assert round(sum(i["cost_usd"] for i in m["items"]), 4) == 1.05
+
+    y = client.get("/api/ai-cost", params={"davr": "yil"}).json()
+    assert y["points"] == 5 and y["items"][-1]["start"] == f"{t.year}-01-01"
+    assert round(sum(i["cost_usd"] for i in y["items"]), 4) == 6.05
+    assert y["items"][-1]["end"] == t.isoformat() and y["items"][-1]["partial"] is True
+
+    # Noto'g'ri davr → odatiy «kun», chegaradan tashqari nuqta → chegaralanadi.
+    x = client.get("/api/ai-cost", params={"davr": "soat", "nuqta": 90}).json()
+    assert x["period"] == "kun" and x["points"] == 90

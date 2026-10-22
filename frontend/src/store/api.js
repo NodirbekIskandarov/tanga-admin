@@ -124,6 +124,12 @@ export const api = createApi({
       providesTags: ["Finance"],
     }),
 
+    // AI xarajati kun · hafta · oy · yil kesimida, aniq qiymatlar bilan.
+    aiCost: build.query({
+      query: ({ davr = "kun", nuqta = 0 } = {}) => ({ url: "/ai-cost", params: { davr, nuqta } }),
+      providesTags: ["Finance"],
+    }),
+
     // ---- Sozlamalar ----
     settings: build.query({ query: () => "/settings", providesTags: ["Settings"] }),
     saveSettings: build.mutation({
@@ -205,6 +211,7 @@ export const {
   useBroadcastJobQuery,
   useVoidPaymentMutation,
   useLogQuery,
+  useAiCostQuery,
   useSystemQuery,
   useUpdateCategoryMutation,
 } = api;

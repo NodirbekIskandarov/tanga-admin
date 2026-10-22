@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useFinanceQuery } from "../store/api";
 import { setFinanceDays } from "../store/uiSlice";
-import { LineChart, Legend } from "../components/Chart";
+import AiCost from "../components/AiCost";
 import Cashflow from "../components/Cashflow";
 import Fresh from "../components/Fresh";
 import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
@@ -82,17 +82,9 @@ export default function Finance() {
         />
       </div>
 
-      <Card title="Kunlik AI xarajati">
-        <div className="pad">
-          <LineChart
-            labels={data.series.labels}
-            data={data.series.cost}
-            color="--danger"
-            format={(v) => "$" + v.toFixed(2)}
-          />
-          <Legend items={[{ label: "Xarajat, $", color: "--danger" }]} />
-        </div>
-      </Card>
+      {/* AI xarajati — kun · hafta · oy · yil kesimida, grafik + aniq
+          qiymatlar jadvali (o'z tanlagichi bor, yuqoridagi oynaga bog'liq emas). */}
+      <AiCost />
 
       <div className="grid2">
         <Card title="Amal turlari bo'yicha">

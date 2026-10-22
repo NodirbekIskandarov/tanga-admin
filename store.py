@@ -1433,7 +1433,10 @@ def _buckets(period: str, points: int, end: date) -> list[tuple[date, date, bool
     bugunga qisqartiriladi — hali kelmagan kunlar nolga qo'shilib, ustunni
     sun'iy pasaytirmasin; interfeys esa buni ochiq belgilaydi.
     """
-    if period == "oy":
+    if period == "yil":
+        starts = [date(end.year - i, 1, 1) for i in range(points - 1, -1, -1)]
+        spans = [(s, date(s.year, 12, 31)) for s in starts]
+    elif period == "oy":
         starts = [_add_months(end.replace(day=1), -i)
                   for i in range(points - 1, -1, -1)]
         spans = [(s, _add_months(s, 1) - timedelta(days=1)) for s in starts]
@@ -1832,3 +1835,70 @@ def update_category(cat_id: int, ru: str, emoji: str, icon: str) -> bool:
             "UPDATE custom_categories SET ru = ?, emoji = ?, icon = ? WHERE id = ?",
             (ru.strip()[:60], emoji.strip()[:8], icon.strip()[:32], cat_id))
         return cur.rowcount > 0
+
+
+# --------------------------------------------------------------------------- #
+# AI xarajati — kun · hafta · oy · yil kesimida, aniq qiymatlar bilan
+# --------------------------------------------------------------------------- #
+
+AI_POINTS = {"kun": (30, 7, 90), "hafta": (12, 4, 52), "oy": (12, 3, 36), "yil": (5, 2, 10)}
+
+
+def ai_cost_series(period: str = "kun", points: int = 0) -> dict:
+    """`usage_log` dan tanlangan davr kesimida: xarajat ($ va so'm), chaqiruvlar
+    soni, tokenlar. Har ustun — bitta davr; harakati bo'lmagan davr nol bilan
+    qoladi. Oxirgi ustun odatda tugamagan (`partial`)."""
+    period = period if period in AI_POINTS else "kun"
+    fallback, least, most = AI_POINTS[period]
+    points = max(least, min(int(points or fallback), most))
+    end = today()
+    chart = _buckets(period, points, end)
+    lo = chart[0][0].isoformat()
+
+    with conn() as c:
+        rows = c.execute(
+            """SELECT day, ROUND(SUM(cost_usd), 6) AS cost, COUNT(*) AS calls,
+                      SUM(input_tokens) AS inp, SUM(output_tokens) AS outp,
+                      SUM(cache_read) AS cread
+               FROM usage_log WHERE day >= ? GROUP BY day ORDER BY day""",
+            (lo,)).fetchall()
+        ops = [dict(r) for r in c.execute(
+            """SELECT operation, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS cost
+               FROM usage_log WHERE day >= ? GROUP BY operation ORDER BY cost DESC""",
+            (lo,)).fetchall()]
+
+    items = []
+    for start, finish, partial in chart:
+        s, e = start.isoformat(), finish.isoformat()
+        cost = calls = inp = outp = cread = 0
+        for r in rows:
+            if s <= r["day"] <= e:
+                cost += float(r["cost"] or 0)
+                calls += int(r["calls"] or 0)
+                inp += int(r["inp"] or 0)
+                outp += int(r["outp"] or 0)
+                cread += int(r["cread"] or 0)
+        items.append({
+            "start": s, "end": e, "partial": partial,
+            "cost_usd": round(cost, 4),
+            "cost_som": round(cost * settings.USD_RATE),
+            "calls": calls,
+            "tokens_in": inp, "tokens_out": outp, "cache_read": cread,
+            "per_call_usd": round(cost / calls, 5) if calls else 0.0,
+        })
+    total = sum(i["cost_usd"] for i in items)
+    calls = sum(i["calls"] for i in items)
+    active = [i["cost_usd"] for i in items if i["calls"]]
+    return {
+        "period": period,
+        "points": points,
+        "today": end.isoformat(),
+        "usd_rate": settings.USD_RATE,
+        "items": items,
+        "total_usd": round(total, 4),
+        "total_som": round(total * settings.USD_RATE),
+        "calls": calls,
+        "avg_usd": round(sum(active) / len(active), 4) if active else 0.0,
+        "max_usd": round(max((i["cost_usd"] for i in items), default=0.0), 4),
+        "by_operation": ops,
+    }
