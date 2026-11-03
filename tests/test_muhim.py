@@ -17,8 +17,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-import plans
-import settings
 import store
 import telegram
 from tests.conftest import add_user
@@ -154,16 +152,6 @@ def test_void_does_not_leak_into_other_stats():
     assert store.stats({777})["avgCheck"] == 0
     assert all(s["count"] == 0 for s in store.funnel({777}) if s["key"] == "tolov")
     assert store.revenue_series("oylik")["nowTotal"] == 0
-
-
-def test_approve_uses_price_user_saw_not_current(app_module):
-    add_user(1)
-    rid = store.add_request(1, "1m", 15_000)             # foydalanuvchi shuni ko'rgan
-    with store.conn() as c:
-        c.execute("UPDATE subscription_requests SET status = 'tekshiruvda' WHERE id = ?", (rid,))
-    assert plans.by_code("1m")["price"] != 15_000        # joriy narx boshqa
-    assert store.approve_request(rid, plans.by_code("1m"), "admin") is not None
-    assert _payments()[0]["amount"] == 15_000
 
 
 # ---------------------------------------------------------------- M5 --

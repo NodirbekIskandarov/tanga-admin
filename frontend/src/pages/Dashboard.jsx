@@ -6,7 +6,8 @@ import { BarChart, Legend } from "../components/Chart";
 import {
   Av, Bars, Card, Empty, ErrorBox, Kpi, Loading, Tag,
 } from "../components/common";
-import { day, dt, som, usd } from "../lib/format";
+import { day, dt, som, usd, usulNomi } from "../lib/format";
+import { PaymeStatusNote } from "./Payments";
 
 /**
  * Umumiy holat — bir ekranda hamma bo'lim bo'yicha qisqacha javob.
@@ -33,12 +34,15 @@ export default function Dashboard() {
         <Fresh at={fulfilledTimeStamp} busy={isFetching} />
       </div>
 
-      {ov.pending > 0 && (
-        <div className="note warn">
+      {/* To'lov faqat Payme orqali: u ishlamasa hech kim obuna bo'la olmaydi. */}
+      <PaymeStatusNote status={data.payme?.status} compact />
+      {data.payme?.paid_today?.count > 0 && (
+        <div className="note ok">
           <span className="grow">
-            <b>{ov.pending} ta to'lov cheki</b> javob kutmoqda.
+            Bugun Payme orqali <b>{data.payme.paid_today.count} ta</b> to'lov —{" "}
+            <b>{som(data.payme.paid_today.amount)} so'm</b>.
           </span>
-          <Link className="btn sm" to="/tolovlar">Ko'rish</Link>
+          <Link className="btn sm" to="/tolovlar">To'lovlar</Link>
         </div>
       )}
       {ai.percent >= 75 && (
@@ -178,11 +182,12 @@ export default function Dashboard() {
                   <th>Sana</th>
                   <th>Foydalanuvchi</th>
                   <th>Tarif</th>
+                  <th>Usul</th>
                   <th className="num">Summa</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.length === 0 && <Empty colSpan={4}>Hozircha to'lov yo'q.</Empty>}
+                {payments.length === 0 && <Empty colSpan={5}>Hozircha to'lov yo'q.</Empty>}
                 {payments.map((p) => (
                   <tr key={p.id}>
                     <td className="mono nowrap">{day(p.created_at)}</td>
@@ -192,8 +197,9 @@ export default function Dashboard() {
                       </Link>
                     </td>
                     <td>{p.plan_code}</td>
-                    <td className="num" style={{ color: "var(--brass)" }}>
-                      {som(p.amount)}
+                    <td><Tag kind={p.method === "payme" ? "ok" : ""}>{usulNomi(p.method)}</Tag></td>
+                    <td className="num" style={{ color: p.voided_at ? "var(--muted)" : "var(--brass)" }}>
+                      {p.voided_at ? <s>{som(p.amount)}</s> : som(p.amount)}
                     </td>
                   </tr>
                 ))}

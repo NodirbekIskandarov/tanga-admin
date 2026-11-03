@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import csv
 import functools
-import html
 import io
 import logging
 import mimetypes
@@ -310,8 +309,6 @@ def api_session(session: dict = Depends(current_admin)):
         "csrf": session["c"],
         "expires_at": session.get("exp"),
         "app_name": settings.APP_NAME,
-        "pending": store.pending_count(),
-        "proofs": store.proof_count(),
         "must_change": bool(store.get_admin(session["u"])["must_change"]),
     }
 
@@ -370,7 +367,7 @@ def api_dashboard(session: dict = Depends(current_admin)):
         "series": store.daily_series(30),
         "expiring": expiring,
         "payments": store.recent_payments(8),
-        "requests": store.list_requests("ochiq", 5),
+        "payme": store.payme_summary(),
         "stats": store.stats(OWNER_IDS),
         "activity": store.activity_counts(OWNER_IDS),
         "log": [dict(r) for r in store.list_log(8, 0)],
@@ -576,79 +573,14 @@ def api_void_payment(request: Request, payment_id: int,
     return {"message": "Yozuv daromaddan chiqarildi."}
 
 
-@app.get("/api/requests")
-def api_requests(session: dict = Depends(current_admin),
-                 holat: str = Query("ochiq", max_length=20)):
-    return {
-        "items": store.list_requests(holat, 200),
-        "overview": store.overview(OWNER_IDS),
-    }
-
-
-@app.get("/api/requests/{req_id}/proof")
-async def api_request_proof(req_id: int, session: dict = Depends(current_admin)):
-    req = store.get_request(req_id)
-    if not req or not req.get("proof_file_id"):
-        raise HTTPException(404, "Chek biriktirilmagan")
-    result = await telegram.fetch_file(req["proof_file_id"])
-    if not result:
-        raise HTTPException(502, "Chekni Telegramdan olib bo'lmadi")
-    content, mime = result
-    return Response(content=content, media_type=mime, headers={
-        "Cache-Control": "private, max-age=300",
-        "Content-Disposition": f'inline; filename="chek-{req_id}"',
-    })
-
-
-class RequestDecision(BaseModel):
-    qaror: str = Field(max_length=10)
-    sabab: str = Field("", max_length=200)
-
-
-@app.post("/api/requests/{req_id}/decide")
-async def api_request_decide(request: Request, req_id: int, body: RequestDecision,
-                             session: dict = Depends(writer)):
-    admin, ip = session["u"], client_ip(request)
-    req = store.get_request(req_id)
-    if not req:
-        raise HTTPException(404, "So'rov topilmadi")
-    if req["status"] not in ("kutilmoqda", "tekshiruvda"):
-        raise HTTPException(409, "Bu so'rov allaqachon hal qilingan.")
-
-    plan = plans.by_code(req["plan_code"])
-    already = HTTPException(409, "Bu so'rov allaqachon hal qilingan.")
-    if body.qaror == "tasdiq":
-        if not plan:
-            raise HTTPException(400, "Tarif topilmadi")
-        # Holat, obuna va to'lov bitta tranzaksiyada; yuqoridagi holat
-        # tekshiruvi faqat tez javob uchun — haqiqiy himoya shu yerda.
-        result = store.approve_request(req_id, plan, admin)
-        if result is None:
-            raise already
-        _, until = result
-        store.log_action(admin, "so'rov tasdiqlandi", req["user_id"], plan["label"], ip)
-        await telegram.send_message(
-            req["user_id"],
-            f"🎉 <b>Obunangiz faollashtirildi!</b>\n\n"
-            f"Tarif: {plan['label']}\n"
-            f"Muddat: <b>{until.strftime('%d.%m.%Y')}</b> gacha\n\n"
-            f"Rahmat! Holatni ko'rish: /holat")
-        return {"message": "Tasdiqlandi va foydalanuvchiga xabar berildi."}
-
-    reason = body.sabab.strip()
-    if not store.decide_request(req_id, "rad etildi", admin, reason):
-        raise already
-    store.log_action(admin, "so'rov rad etildi", req["user_id"],
-                     f"{plans.label(req['plan_code'])} | {reason}"[:200], ip)
-    # Sabab HTML xabarga qo'yiladi — «<» kabi belgi Telegram'da xato
-    # berib, xabar umuman yetmay qolmasin.
-    tail = f"\n\n<b>Sabab:</b> {html.escape(reason)}" if reason else ""
-    await telegram.send_message(
-        req["user_id"],
-        f"❌ <b>To'lov tasdiqlanmadi</b>{tail}\n\n"
-        f"To'lovni qayta tekshirib, chekni yana yuboring yoki administrator "
-        f"bilan bog'laning. Tariflar: /obuna")
-    return {"message": "Rad etildi."}
+@app.get("/api/payme")
+@cached_endpoint
+def api_payme(session: dict = Depends(current_admin),
+              holat: str = Query("", max_length=12),
+              test: bool = False):
+    """Payme buyurtmalari (obuna faqat Payme orqali, admin tasdig'i yo'q).
+    `test=true` — sandbox buyurtmalari (provider payme_test)."""
+    return {"items": store.payme_orders(holat, test, 200), "summary": store.payme_summary()}
 
 
 # --------------------------------------------------------------------------- #
@@ -692,8 +624,6 @@ class SettingsBody(BaseModel):
     plan_price_6m: int = Field(0, ge=0, le=100_000_000)
     plan_price_12m: int = Field(0, ge=0, le=100_000_000)
     plan_price_f12: int = Field(0, ge=0, le=100_000_000)
-    card_number: str = Field("", max_length=32)
-    card_holder: str = Field("", max_length=64)
     trial_days: int = Field(7, ge=1, le=365)
     ai_monthly_budget_usd: float = Field(50, gt=0, le=100_000)
     # Kishi boshiga (bepul va sinov). 0 — chegara yo'q.
@@ -705,8 +635,6 @@ def api_settings(session: dict = Depends(current_admin)):
     return {
         "plans": _plans(),
         "bot": {
-            "card_number": settings.card_number(),
-            "card_holder": settings.card_holder(),
             "trial_days": settings.trial_days(),
             "ai_monthly_budget_usd": settings.ai_monthly_budget_usd(),
             "ai_user_monthly_budget_usd": settings.ai_user_monthly_budget_usd(),
@@ -722,8 +650,6 @@ def api_settings_save(request: Request, body: SettingsBody,
     before = {p["code"]: p["price"] for p in plans.all_plans()}
     values = {
         **{f"plan_price_{code}": getattr(body, f"plan_price_{code}") for code in PLAN_CODES},
-        "card_number": body.card_number.strip(),
-        "card_holder": body.card_holder.strip(),
         "trial_days": body.trial_days,
         "ai_monthly_budget_usd": body.ai_monthly_budget_usd,
         "ai_user_monthly_budget_usd": body.ai_user_monthly_budget_usd,
@@ -738,7 +664,7 @@ def api_settings_save(request: Request, body: SettingsBody,
                for code in PLAN_CODES
                if before[code] != values[f"plan_price_{code}"]]
     store.log_action(admin, "sozlamalar o'zgartirildi", "",
-                     "; ".join(changed)[:200] or "rekvizit/limit",
+                     "; ".join(changed)[:200] or "limitlar",
                      client_ip(request))
     return {"message": "Sozlamalar saqlandi.", **api_settings(session)}
 
@@ -787,6 +713,7 @@ def api_finance(session: dict = Depends(current_admin),
         "spenders": store.top_spenders(15, kun),
         "series": store.daily_series(min(kun, 90)),
         "payments": store.recent_payments(25),
+        "by_method": store.revenue_by_method(),
         "plans": _plans(),
         "usd_rate": settings.USD_RATE,
         "cost_month_som": ov["cost_month"] * settings.USD_RATE,

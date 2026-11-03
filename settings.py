@@ -79,8 +79,6 @@ APP_NAME = os.getenv("APP_NAME", "Tanga — Admin")
 
 DEFAULT_TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
 DEFAULT_MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "50"))
-DEFAULT_CARD_NUMBER = os.getenv("CARD_NUMBER", "").strip()
-DEFAULT_CARD_HOLDER = os.getenv("CARD_HOLDER", "").strip()
 
 
 def _stored() -> dict:
@@ -120,14 +118,6 @@ def ai_user_monthly_budget_usd() -> float:
         return value if value >= 0 else DEFAULT_USER_MONTHLY_BUDGET_USD
     except (TypeError, ValueError):
         return DEFAULT_USER_MONTHLY_BUDGET_USD
-
-
-def card_number() -> str:
-    return str(_stored().get("card_number", "") or DEFAULT_CARD_NUMBER)
-
-
-def card_holder() -> str:
-    return str(_stored().get("card_holder", "") or DEFAULT_CARD_HOLDER)
 
 
 def missing() -> list[str]:

@@ -472,9 +472,9 @@ def list_users(search: str = "", state: str = "", owner_ids: set[int] | None = N
         # Oxirgi to'langan tarif — ro'yxatdagi «Tarif» ustuni uchun.
         last_plan = dict(c.execute(
             "SELECT user_id, plan_code FROM payments WHERE id IN "
-            "(SELECT MAX(id) FROM payments WHERE voided_at IS NULL GROUP BY user_id)").fetchall())
+            "(SELECT MAX(id) FROM payments WHERE voided_at IS NULL AND method <> 'payme_test' GROUP BY user_id)").fetchall())
         paid = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL "
+            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL AND method <> 'payme_test' "
             "GROUP BY user_id").fetchall())
 
     for r in rows:
@@ -597,9 +597,10 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
         u["requests"] = [dict(r) for r in c.execute(
             "SELECT * FROM subscription_requests WHERE user_id = ? ORDER BY id DESC LIMIT 10",
             (user_id,)).fetchall()]
+        u["payme_orders"] = _payme_rows(c, ["o.user_id = ?"], [user_id], 10)
         u["paid_total"] = int(c.execute(
             "SELECT COALESCE(SUM(amount), 0) FROM payments "
-            "WHERE user_id = ? AND voided_at IS NULL",
+            "WHERE user_id = ? AND voided_at IS NULL AND method <> 'payme_test'",
             (user_id,)).fetchone()[0])
         u["bot_blocked"] = bool(u.get("bot_blocked_at"))
         u["consented"] = bool(u.get("consent_at"))
@@ -804,7 +805,7 @@ def list_requests(status: str = "", limit: int = 100) -> list:
         counts = dict(c.execute(
             "SELECT user_id, SUM(n) FROM entry_counts GROUP BY user_id").fetchall())
         paid = dict(c.execute(
-            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL "
+            "SELECT user_id, COUNT(*) FROM payments WHERE voided_at IS NULL AND method <> 'payme_test' "
             "GROUP BY user_id").fetchall())
         rejected = dict(c.execute(
             "SELECT user_id, COUNT(*) FROM subscription_requests "
@@ -824,23 +825,6 @@ def list_requests(status: str = "", limit: int = 100) -> list:
     return rows
 
 
-def pending_count() -> int:
-    """Javob kutayotgan so'rovlar — cheki kelganlar ham, hali kelmaganlar ham."""
-    with conn() as c:
-        return int(c.execute(
-            "SELECT COUNT(*) FROM subscription_requests "
-            "WHERE status IN ('kutilmoqda', 'tekshiruvda')"
-        ).fetchone()[0])
-
-
-def proof_count() -> int:
-    """Cheki kelgan, darhol javob kutayotgan so'rovlar."""
-    with conn() as c:
-        return int(c.execute(
-            "SELECT COUNT(*) FROM subscription_requests WHERE status = 'tekshiruvda'"
-        ).fetchone()[0])
-
-
 def get_request(req_id: int) -> dict | None:
     with conn() as c:
         row = c.execute("SELECT * FROM subscription_requests WHERE id = ?",
@@ -849,58 +833,6 @@ def get_request(req_id: int) -> dict | None:
 
 
 _OPEN = "status IN ('kutilmoqda', 'tekshiruvda')"
-
-
-def decide_request(req_id: int, status: str, admin: str, note: str = "") -> bool:
-    """So'rov holatini yozadi — faqat hali HAL QILINMAGAN bo'lsa.
-
-    Qaytaradi: yozildimi. False — so'rovni boshqa admin (yoki ikkinchi
-    tab) allaqachon hal qilgan.
-    """
-    with conn() as c:
-        cur = c.execute(
-            f"""UPDATE subscription_requests
-                SET status = ?, decided_at = ?, decided_by = ?, note = ?
-                WHERE id = ? AND {_OPEN}""",
-            (status, now_iso(), admin, note, req_id))
-        return cur.rowcount > 0
-
-
-def approve_request(req_id: int, plan: dict, admin: str) -> tuple[int, datetime] | None:
-    """So'rovni tasdiqlaydi: holat, obuna va to'lov BITTA tranzaksiyada.
-
-    Ilgari uch qadam alohida edi va holat tekshiruvi yozishdan oldin
-    bo'lardi — ikki admin (yoki ikki tab) bir vaqtda bossa, ikkalasi ham
-    tekshiruvdan o'tib, obuna ham, to'lov ham ikki marta yozilardi.
-    Endi birinchi qadam — shartli UPDATE: uni faqat bitta so'rov yuta
-    oladi, qolganlari None oladi.
-
-    Qaytaradi: (user_id, yangi muddat) yoki None (allaqachon hal qilingan).
-    """
-    with conn() as c:
-        cur = c.execute(
-            f"""UPDATE subscription_requests
-                SET status = 'tasdiqlandi', decided_at = ?, decided_by = ?, note = ''
-                WHERE id = ? AND {_OPEN}""",
-            (now_iso(), admin, req_id))
-        if cur.rowcount == 0:
-            return None
-        req = c.execute(
-            "SELECT user_id, price FROM subscription_requests WHERE id = ?",
-            (req_id,)).fetchone()
-        user_id = int(req["user_id"])
-        # Daromad — foydalanuvchi KO'RGAN va to'lagan narx (so'rovdagi),
-        # joriy narx emas: tarif narxi so'rov va tasdiq orasida o'zgargan
-        # bo'lsa, daromad to'lanmagan summa bilan yozilmasin.
-        price = int(req["price"] or 0) or plan["price"]
-        until = _extend_subscription(c, user_id, plan["days"])
-        c.execute(
-            """INSERT INTO payments
-               (user_id, plan_code, amount, days, method, created_by, created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (user_id, plan["code"], price, plan["days"], "qolda", admin,
-             now_iso()))
-    return user_id, until
 
 
 def add_payment(user_id: int, plan_code: str, amount: int, days: int,
@@ -978,7 +910,7 @@ def revenue_series(scale: str = "oylik") -> dict:
     keys = _bucket_keys(scale, count * 2)
     with conn() as c:
         rows = c.execute("SELECT created_at, amount FROM payments "
-                         "WHERE voided_at IS NULL").fetchall()
+                         "WHERE voided_at IS NULL AND method <> 'payme_test'").fetchall()
 
     sums: dict[str, int] = {}
     for created_at, amount in rows:
@@ -1021,7 +953,7 @@ def stats(owner_ids: set[int]) -> dict:
             ((now - timedelta(days=30)).date().isoformat(),)).fetchone()[0])
         pay_rows = c.execute(
             "SELECT plan_code, amount, user_id, created_at FROM payments "
-            "WHERE voided_at IS NULL").fetchall()
+            "WHERE voided_at IS NULL AND method <> 'payme_test'").fetchall()
         cost_month = float(c.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
             (month_start,)).fetchone()[0])
@@ -1144,7 +1076,7 @@ def _funnel_data(owner_ids: set[int]) -> tuple[list[dict], dict[int, list[str]],
         for r in c.execute("SELECT user_id, day FROM entry_counts WHERE n > 0"):
             entry_days.setdefault(r[0], []).append(str(r[1]))
         paid = {r[0] for r in c.execute(
-            "SELECT DISTINCT user_id FROM payments WHERE voided_at IS NULL")}
+            "SELECT DISTINCT user_id FROM payments WHERE voided_at IS NULL AND method <> 'payme_test'")}
     return users, entry_days, paid
 
 
@@ -1191,10 +1123,10 @@ def overview(owner_ids: set[int]) -> dict:
             (today().isoformat(),)).fetchone()[0])
         revenue_all = int(c.execute(
             "SELECT COALESCE(SUM(amount), 0) FROM payments "
-            "WHERE voided_at IS NULL").fetchone()[0])
+            "WHERE voided_at IS NULL AND method <> 'payme_test'").fetchone()[0])
         revenue_month = int(c.execute(
             "SELECT COALESCE(SUM(amount), 0) FROM payments "
-            "WHERE created_at >= ? AND voided_at IS NULL",
+            "WHERE created_at >= ? AND voided_at IS NULL AND method <> 'payme_test'",
             (today().replace(day=1).isoformat(),)).fetchone()[0])
 
     states = {"ega": 0, "obunachi": 0, "sinov": 0, "bepul": 0, "bloklangan": 0}
@@ -1221,7 +1153,6 @@ def overview(owner_ids: set[int]) -> dict:
         "revenue_month": revenue_month,
         "profit_month": round(revenue_month - cost_month * settings.USD_RATE),
         "conversion": round(100 * payers / total_nonowner, 1),
-        "pending": pending_count(),
         # Aloqa: yetib boradi / botni bloklagan / rozilik yo'q / hech yozmagan.
         "churn": segment_counts(owner_ids),
     }
@@ -1286,6 +1217,122 @@ def recent_payments(limit: int = 20) -> list:
             """SELECT p.*, u.first_name, u.username FROM payments p
                LEFT JOIN users u ON u.user_id = p.user_id
                ORDER BY p.id DESC LIMIT ?""", (limit,)).fetchall()]
+
+
+def revenue_by_method() -> list:
+    """Daromad to'lov usuli bo'yicha (qo'lda / sovg'a / Payme): shu oy va jami.
+    Bekor qilingan va sandbox (payme_test) yozuvlar kirmaydi."""
+    month_start = today().replace(day=1).isoformat()
+    with conn() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT method, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS total,
+                      COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month_n,
+                      COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS month
+               FROM payments WHERE voided_at IS NULL AND method <> 'payme_test'
+               GROUP BY method ORDER BY total DESC""", (month_start, month_start)).fetchall()]
+
+
+# --------------------------------------------------------------------------- #
+# Payme
+#
+# Obuna faqat Payme orqali (bot: payme.py): to'lov o'tishi bilan PRO o'zi
+# yoqiladi, admin tasdig'i yo'q. Buyurtmalar `payment_orders` jadvalida —
+# bot yaratadi; sandbox buyurtmalari `provider = 'payme_test'`. Panel bu
+# jadvalga faqat O'QIYDI.
+# --------------------------------------------------------------------------- #
+
+PAYME_STATES = ("pending", "created", "paid", "cancelled", "refunded", "expired")
+
+
+def _ms_iso(ms) -> str | None:
+    """Payme vaqti (ms, epoch) → Toshkent vaqti ISO."""
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, settings.TZ).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _payme_rows(c, where: list[str], params: list, limit: int) -> list[dict]:
+    if not _has_table(c, "payment_orders"):
+        return []
+    rows = c.execute(
+        f"""SELECT o.*, u.first_name, u.username FROM payment_orders o
+            LEFT JOIN users u ON u.user_id = o.user_id
+            WHERE {' AND '.join(where) or '1'} ORDER BY o.id DESC LIMIT ?""",
+        list(params) + [limit]).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["test"] = d.get("provider") == "payme_test"
+        for k in ("create_time", "perform_time", "cancel_time"):
+            d[k + "_at"] = _ms_iso(d.get(k)) if d.get(k) else None
+        out.append(d)
+    return out
+
+
+def payme_status() -> dict:
+    """Botning Payme sozlamasi (bot ishga tushganda bot_status'ga yozadi,
+    kalitlarsiz): rejim, tugma, kassa va kalit bor-yo'qligi, checkout."""
+    with conn() as c:
+        if not _has_table(c, "bot_status"):
+            return {}
+        row = c.execute("SELECT value, updated_at FROM bot_status WHERE key = 'payme'").fetchone()
+    if not row:
+        return {}
+    try:
+        data = json.loads(row["value"] or "{}")
+    except ValueError:
+        return {}
+    return {**data, "updated_at": row["updated_at"]} if isinstance(data, dict) else {}
+
+
+def payme_orders(state: str = "", test: bool = False, limit: int = 200) -> list[dict]:
+    where, params = ["o.provider = ?"], ["payme_test" if test else "payme"]
+    if state in PAYME_STATES:
+        where.append("o.state = ?")
+        params.append(state)
+    with conn() as c:
+        return _payme_rows(c, where, params, limit)
+
+
+def payme_summary() -> dict:
+    """«To'lovlar» sahifasi va bosh sahifa: holatlar bo'yicha soni va summasi,
+    bugun / shu oy to'langanlar, so'nggi 30 kundagi havola → to'lov ulushi."""
+    now = datetime.now(settings.TZ)
+    day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    ms = lambda d: int(d.timestamp() * 1000)          # noqa: E731
+    month_ms, today_ms = ms(day0.replace(day=1)), ms(day0)
+    since_30 = (now - timedelta(days=30)).isoformat(timespec="seconds")
+    with conn() as c:
+        if not _has_table(c, "payment_orders"):
+            return {"known": False, "status": payme_status()}
+        by_state = {s: {"count": 0, "amount": 0} for s in PAYME_STATES}
+        for st, n, total in c.execute(
+                "SELECT state, COUNT(*), COALESCE(SUM(amount), 0) FROM payment_orders "
+                "WHERE provider = 'payme' GROUP BY state"):
+            by_state[st] = {"count": int(n), "amount": int(total)}
+
+        def paid_since(t):
+            n, total = c.execute(
+                "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM payment_orders "
+                "WHERE provider = 'payme' AND state = 'paid' AND perform_time >= ?",
+                (t,)).fetchone()
+            return {"count": int(n), "amount": int(total)}
+
+        links_30, paid_30 = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(state = 'paid'), 0) FROM payment_orders "
+            "WHERE provider = 'payme' AND created_at >= ?", (since_30,)).fetchone()
+        test_count = int(c.execute(
+            "SELECT COUNT(*) FROM payment_orders WHERE provider = 'payme_test'").fetchone()[0])
+        summary = {
+            "known": True, "by_state": by_state,
+            "paid_today": paid_since(today_ms), "paid_month": paid_since(month_ms),
+            "links_30": int(links_30), "paid_30": int(paid_30 or 0),
+            "conversion_30": round(100 * int(paid_30 or 0) / links_30) if links_30 else None,
+            "test_count": test_count,
+        }
+    summary["status"] = payme_status()
+    return summary
 
 
 # --------------------------------------------------------------------------- #
@@ -1467,7 +1514,7 @@ def _collect(c, group, lo: str, hi: str) -> tuple[dict, dict]:
     # SQLite'ning datetime() si buni UTC ga o'girib yuborardi.
     pay = _by_key(c,
         f"SELECT {group('substr(created_at, 1, 10)')} k, COALESCE(SUM(amount), 0) s "
-        "FROM payments WHERE voided_at IS NULL "
+        "FROM payments WHERE voided_at IS NULL AND method <> 'payme_test' "
         "AND substr(created_at, 1, 10) BETWEEN ? AND ? "
         "GROUP BY k", (lo, hi))
     ai_usd = _by_key(c,
@@ -1815,6 +1862,7 @@ def system_status(owner_ids: set[int]) -> dict:
         "referrals": referrals,
         "categories": categories,
         "rates": rates,
+        "payme": payme_status(),
         "server": server_metrics(),
         "panel": {
             "commit": _git_commit(settings.BASE_DIR),

@@ -14,7 +14,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import auth
-import plans
 import store
 import telegram
 from tests.conftest import add_user
@@ -103,50 +102,8 @@ def test_delete_user_removes_events():
 
 
 # ------------------------------------------------ 3. Tasdiqlash --
-
-def _request(user_id=1, plan_code="1m", status="tekshiruvda") -> int:
-    rid = store.add_request(user_id, plan_code, plans.price(plan_code))
-    with store.conn() as c:
-        c.execute("UPDATE subscription_requests SET status = ? WHERE id = ?",
-                  (status, rid))
-    return rid
-
-
-def test_approve_is_one_shot():
-    add_user(1)
-    rid = _request()
-    plan = plans.by_code("1m")
-    first = store.approve_request(rid, plan, "admin")
-    second = store.approve_request(rid, plan, "admin2")
-    assert first is not None and second is None
-    with store.conn() as c:
-        assert c.execute("SELECT COUNT(*) FROM payments").fetchone()[0] == 1
-    assert store.get_request(rid)["status"] == "tasdiqlandi"
-
-
-def test_decide_endpoint_rejects_second_decision(client):
-    add_user(1)
-    rid = _request()
-    assert client.post(f"/api/requests/{rid}/decide",
-                       json={"qaror": "tasdiq"}).status_code == 200
-    r = client.post(f"/api/requests/{rid}/decide", json={"qaror": "rad"})
-    assert r.status_code == 409
-    assert store.get_request(rid)["status"] == "tasdiqlandi"
-
-
-def test_decide_request_does_not_overwrite_decided():
-    add_user(1)
-    rid = _request(status="tasdiqlandi")
-    assert store.decide_request(rid, "rad etildi", "admin") is False
-    assert store.get_request(rid)["status"] == "tasdiqlandi"
-
-
-def test_reject_reason_is_html_escaped(client):
-    add_user(1)
-    rid = _request()
-    client.post(f"/api/requests/{rid}/decide",
-                json={"qaror": "rad", "sabab": "summa <99 000"})
-    assert any("summa &lt;99 000" in text for _, text in client.sent)
+# Qo'lda tasdiqlash 2026-11-03 da olib tashlandi (obuna faqat Payme orqali) —
+# tests/test_payme_admin.py: tasdiqlash yo'li yopilgani tekshiriladi.
 
 
 # ------------------------------------------------ 4. warned_stage --
@@ -157,7 +114,3 @@ def test_grant_resets_warned_stage():
     assert _user(1)["warned_stage"] == 0
 
 
-def test_approve_resets_warned_stage():
-    add_user(1, warned_stage=3)
-    store.approve_request(_request(), plans.by_code("1m"), "admin")
-    assert _user(1)["warned_stage"] == 0

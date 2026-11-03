@@ -1,441 +1,191 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useDispatch } from "react-redux";
-import { useDecideRequestMutation, useRequestsQuery } from "../store/api";
-import { pushToast } from "../store/uiSlice";
+import { usePaymeQuery } from "../store/api";
 import Fresh from "../components/Fresh";
-import {
-  Av, Card, Empty, ErrorBox, Fact, Facts, Kbd, Kpi, Lightbox, Loading, Modal,
-} from "../components/common";
-import { dt, som } from "../lib/format";
+import { Card, Empty, ErrorBox, Kpi, Loading, Seg, Tag } from "../components/common";
+import { bekorSababi, dt, paymeHolat, som } from "../lib/format";
 
-// Tayyor sabablar — eng ko'p uchraydigan uchtasi va o'z matni.
-// Sabab foydalanuvchiga o'zgarishsiz yuboriladi, shuning uchun matni
-// aniq va ayblovsiz.
-const REASONS = ["Summa mos emas", "Chek o'qilmadi", "Takroriy chek"];
-
-const HINTS = [
-  ["J / K", "keyingi / oldingi chek"],
-  ["A", "tasdiqlash"],
-  ["R", "rad etish"],
-  ["Space", "rasmni kattalashtirish"],
-  ["?", "yorliqlar ro'yxati"],
+// Obuna faqat Payme orqali: foydalanuvchi to'laydi — PRO o'zi yoqiladi.
+// Admin tasdig'i yo'q, shuning uchun bu sahifa — kuzatuv: kim, qachon,
+// qancha to'ladi, qaysi havola to'lanmay qoldi, nima bekor bo'ldi.
+const FILTERS = [
+  ["", "Hammasi"],
+  ["paid", "To'langan"],
+  ["created", "To'lanmoqda"],
+  ["pending", "Havola"],
+  ["cancelled", "Bekor"],
+  ["refunded", "Qaytarilgan"],
+  ["expired", "Eskirgan"],
 ];
 
-/** 24 soatdan oshgan chek — javob kechikkan, ko'zga tashlansin. */
-const LATE_HOURS = 24;
-
-function waitedHours(iso) {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return 0;
-  return Math.max(0, (Date.now() - t) / 3600000);
-}
-
-function waited(iso) {
-  const h = waitedHours(iso);
-  if (h < 1) return `${Math.round(h * 60)} daqiqa`;
-  if (h < 24) return `${Math.floor(h)} soat`;
-  return `${Math.floor(h / 24)} kun ${Math.floor(h % 24)} soat`;
-}
-
-function history(req) {
-  if (!req.paid_count) return "birinchi to'lov";
-  const times = `${req.paid_count} marta`;
-  return req.rejected_count
-    ? `${times} · ${req.rejected_count} chek rad etilgan`
-    : `${times} · muammosiz`;
-}
-
-function Proof({ req, onZoom }) {
-  const url = `/api/requests/${req.id}/proof`;
-
-  if (!req.proof_file_id) {
-    return (
-      <div className="shot">
-        <div className="ph">
-          Chek hali
-          <br />
-          yuborilmagan
-        </div>
+/** Payme sozlamasi: foydalanuvchilar hozir to'lay oladimi. */
+export function PaymeStatusNote({ status, compact = false }) {
+  if (!status || !status.env) {
+    return compact ? null : (
+      <div className="note warn">
+        <span className="grow">
+          Payme holati noma'lum — bot yangi versiya bilan hali ishga tushmagan.
+        </span>
       </div>
     );
   }
-
-  if (req.proof_kind === "pdf") {
-    // PDF ni <img> ko'rsata olmaydi — brauzerning o'z ko'ruvchisiga beramiz.
+  if (!status.ready) {
     return (
-      <>
-        <object data={url} type="application/pdf" className="pdf-proof"
-                aria-label="To'lov cheki (PDF)">
-          <div className="ph">PDF chek</div>
-        </object>
-        <a className="btn sm" href={url} target="_blank" rel="noopener">
-          PDF ni alohida ochish
-        </a>
-      </>
+      <div className="note bad">
+        <span className="grow">
+          <b>Foydalanuvchilar hozir to'lay olmaydi:</b>{" "}
+          {!status.enabled ? "botda Payme tugmasi o'chiq (PAYME_ENABLED=false)" : "kassa ID yoki kalit yo'q"}.
+          {" "}Bot tarif tanlaganlarga «to'lov vaqtincha ishlamayapti» deydi.
+        </span>
+        {compact && <Link className="btn sm" to="/tolovlar">To'lovlar</Link>}
+      </div>
     );
   }
-
-  return (
-    <button className="shot" onClick={onZoom} title="Kattalashtirish — Space">
-      <img src={url} alt="To'lov cheki" loading="lazy" />
-    </button>
+  if (!status.prod) {
+    return (
+      <div className="note warn">
+        <span className="grow">
+          <b>Payme test rejimida</b> — havolalar {status.checkout} ga boradi, haqiqiy
+          pul yechilmaydi va to'lovlar daromadga kirmaydi.
+        </span>
+        {compact && <Link className="btn sm" to="/tolovlar">To'lovlar</Link>}
+      </div>
+    );
+  }
+  return compact ? null : (
+    <div className="note ok">
+      <span className="grow">
+        Payme <b>ishchi rejimda</b>: to'lov o'tishi bilan PRO o'zi yoqiladi,
+        foydalanuvchiga va sizga xabar keladi. Qo'lda tasdiqlash yo'q.
+      </span>
+    </div>
   );
 }
 
 export default function Payments() {
-  const dispatch = useDispatch();
-  // Admin bu ekranda chekni KUTIB o'tiradi — eng tez yangilanish shu yerda.
+  const [holat, setHolat] = useState("");
+  const [test, setTest] = useState(false);
   const { data, isFetching, error, refetch, fulfilledTimeStamp } =
-    useRequestsQuery("ochiq", { pollingInterval: 12000 });
-  const [decide, { isLoading: busy }] = useDecideRequestMutation();
+    usePaymeQuery({ holat, test });
 
-  const [index, setIndex] = useState(0);
-  const [zoom, setZoom] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-  const [other, setOther] = useState("");
-  const [help, setHelp] = useState(false);
-  const [confirming, setConfirming] = useState(null);
+  if (error) return <ErrorBox error={error} onRetry={refetch} />;
+  if (!data) return <Loading />;
 
-  const items = useMemo(() => data?.items || [], [data]);
-  const ov = data?.overview;
-  const current = items[Math.min(index, items.length - 1)] || null;
-
-  // Ro'yxat qisqarsa (chek hal qilindi) — ko'rsatkich chegaradan chiqmasin.
-  useEffect(() => {
-    setIndex((i) => (items.length ? Math.min(i, items.length - 1) : 0));
-  }, [items.length]);
-
-  const longest = useMemo(() => {
-    if (!items.length) return null;
-    return items.reduce((a, b) =>
-      waitedHours(a.created_at) > waitedHours(b.created_at) ? a : b);
-  }, [items]);
-
-  function move(step) {
-    if (!items.length) return;
-    setIndex((i) => (i + step + items.length) % items.length);
-    setZoom(false);
-  }
-
-  async function send(req, qaror, sabab = "") {
-    try {
-      const res = await decide({ id: req.id, qaror, sabab }).unwrap();
-      dispatch(pushToast(res.message, qaror === "tasdiq" ? "ok" : "bad"));
-    } catch (err) {
-      dispatch(pushToast(err?.data?.detail || "Xatolik yuz berdi.", "bad"));
-    }
-  }
-
-  function onReject(reason) {
-    setRejecting(false);
-    setOther("");
-    if (current) send(current, "rad", reason);
-  }
-
-  // Klaviatura yorliqlari: navbatda o'nlab chek bo'lganda sichqonchaga
-  // qaytish har safar bir necha soniya yeydi.
-  useEffect(() => {
-    function onKey(e) {
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.key === "Escape") {
-        setZoom(false);
-        setRejecting(false);
-        setHelp(false);
-        setConfirming(null);
-        return;
-      }
-      const tag = e.target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "?") return setHelp(true);
-      if (!current || rejecting || confirming) return;
-      const k = e.key.toLowerCase();
-      if (k === "j") { e.preventDefault(); move(1); }
-      else if (k === "k") { e.preventDefault(); move(-1); }
-      else if (k === "a") { e.preventDefault(); setConfirming(current); }
-      else if (k === "r") { e.preventDefault(); setRejecting(true); }
-      else if (e.key === " ") { e.preventDefault(); setZoom((z) => !z); }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  const withProof = items.filter((r) => r.proof_file_id).length;
-  const lateNow = longest && waitedHours(longest.created_at) >= LATE_HOURS;
+  const sm = data.summary || {};
+  const bs = sm.by_state || {};
+  const count = (k) => bs[k]?.count || 0;
 
   return (
     <>
-      <Lightbox
-        src={zoom && current?.proof_file_id && current.proof_kind !== "pdf"
-          ? `/api/requests/${current.id}/proof`
-          : null}
-        onClose={() => setZoom(false)}
-      />
-
-      {confirming && (
-        <Modal
-          title={`${confirming.first_name || "Foydalanuvchi"} — ${confirming.plan_code} obunasi faollashtirilsinmi?`}
-          sub="Obuna darhol yoqiladi va foydalanuvchiga Telegram orqali xabar boradi."
-          onClose={() => setConfirming(null)}
-          z={40}
-        >
-          <div className="acts">
-            <button className="btn" onClick={() => setConfirming(null)}>
-              Bekor qilish
-            </button>
-            <button
-              className="btn ok"
-              autoFocus
-              disabled={busy}
-              onClick={() => { const r = confirming; setConfirming(null); send(r, "tasdiq"); }}
-            >
-              Tasdiqlash
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {rejecting && current && (
-        <Modal
-          title="Rad etish sababi"
-          sub="Sabab foydalanuvchiga o'zgarishsiz yuboriladi."
-          onClose={() => setRejecting(false)}
-        >
-          <div className="reasons">
-            {REASONS.map((r) => (
-              <button key={r} className="choice" onClick={() => onReject(r)}>
-                {r}
-              </button>
-            ))}
-          </div>
-          <label className="fld" style={{ margin: 0 }}>
-            <span>Boshqa sabab</span>
-            <input
-              type="text"
-              maxLength={200}
-              autoFocus
-              placeholder="O'z so'zingiz bilan"
-              value={other}
-              onChange={(e) => setOther(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && other.trim() && onReject(other.trim())}
-            />
-          </label>
-          <div className="acts">
-            <button className="btn" onClick={() => setRejecting(false)}>
-              Bekor qilish
-            </button>
-            <button className="btn dan" disabled={!other.trim()}
-                    onClick={() => onReject(other.trim())}>
-              Rad etish
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {help && (
-        <Modal title="Klaviatura yorliqlari" onClose={() => setHelp(false)} width={360} z={60}>
-          <div className="keylist">
-            {HINTS.map(([key, what]) => (
-              <div key={key}>
-                <span>{what}</span>
-                <Kbd>{key}</Kbd>
-              </div>
-            ))}
-          </div>
-          <div className="acts">
-            <button className="btn" onClick={() => setHelp(false)}>Yopish</button>
-          </div>
-        </Modal>
-      )}
-
-      <div className="kpis">
-        <Kpi
-          label="Faol obuna"
-          value={ov ? ov.states.obunachi : "—"}
-          sub={ov ? `konversiya ${ov.conversion}%` : ""}
-          tone="good"
-        />
-        <Kpi
-          label="Sinov muddatida"
-          value={ov ? ov.states.sinov : "—"}
-          sub={ov ? `${ov.states.tugagan} tasining muddati tugagan` : ""}
-        />
-        <Kpi
-          label="Oylik daromad"
-          value={ov ? som(ov.revenue_month) : "—"}
-          sub={ov ? `jami ${som(ov.revenue_all)} so'm` : ""}
-          tone="brass"
-        />
-        <Kpi
-          label="Kutayotgan chek"
-          value={items.length}
-          sub={longest ? `eng uzoq kutgani — ${waited(longest.created_at)}` : "navbat bo'sh"}
-          tone={items.length ? (lateNow ? "bad" : "warn") : "good"}
-        />
+      <div className="page-head">
+        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
       </div>
 
-      {error && <ErrorBox error={error} onRetry={refetch} />}
-      {isFetching && !data && <Loading />}
+      <PaymeStatusNote status={sm.status} />
 
-      {current && (
-        <Card
-          title="Chekni ko'rish"
-          action={
-            <div className="row">
-              <span className="mono muted">
-                {Math.min(index, items.length - 1) + 1} / {items.length}
-              </span>
-              <button className="btn sm mono" onClick={() => move(-1)} title="Oldingi — K">K</button>
-              <button className="btn sm mono" onClick={() => move(1)} title="Keyingi — J">J</button>
-            </div>
-          }
-        >
-          <div className="review">
-            <div className="shots">
-              <Proof req={current} onZoom={() => setZoom(true)} />
-              {current.proof_file_id && current.proof_kind !== "pdf" && (
-                <div className="hint">
-                  Kattalashtirish — <Kbd>Space</Kbd>
-                </div>
-              )}
-            </div>
-
-            <div className="facts-side">
-              <div className="who">
-                <Av name={current.first_name || current.username || "?"}
-                    seed={current.user_id} size="lg" />
-                <div style={{ minWidth: 0 }}>
-                  <div className="name">{current.first_name || "Nomsiz"}</div>
-                  <div className="meta">
-                    {current.username ? `@${current.username} · ` : ""}ID {current.user_id}
-                  </div>
-                </div>
-              </div>
-
-              <Facts>
-                <Fact label="Tarif va summa">
-                  <b style={{ color: "var(--brass)" }}>
-                    {current.plan_code} · {som(current.price)} so'm
-                  </b>
-                </Fact>
-                <Fact label="Yuborilgan">
-                  <span style={waitedHours(current.created_at) >= LATE_HOURS
-                    ? { color: "var(--danger)" } : undefined}>
-                    {waited(current.created_at)} oldin
-                  </span>
-                </Fact>
-                <Fact label="Oldingi obuna">{history(current)}</Fact>
-                <Fact label="Yozuvlari">
-                  {current.tx_count} ta
-                  {current.member_days != null && ` · ${current.member_days} kun`}
-                </Fact>
-              </Facts>
-
-              {current.proof_file_id ? null : (
-                <div className="note warn">
-                  <span className="grow">
-                    Chek hali yuborilmagan — foydalanuvchi tarifni tanlagan,
-                    lekin to'lov suratini jo'natmagan.
-                  </span>
-                </div>
-              )}
-
-              <div className="row">
-                <button className="btn ok lg" disabled={busy}
-                        onClick={() => setConfirming(current)}>
-                  Tasdiqlash
-                </button>
-                <button className="btn dan lg" disabled={busy}
-                        onClick={() => setRejecting(true)}>
-                  Rad etish
-                </button>
-                <Link className="btn lg" to={`/foydalanuvchilar/${current.user_id}`}>
-                  Profil
-                </Link>
-              </div>
-
-              <div className="keys">
-                {HINTS.map(([key, what]) => (
-                  <span key={key}>
-                    <Kbd>{key}</Kbd>
-                    {what}
-                  </span>
-                ))}
-              </div>
-            </div>
+      {sm.known === false ? (
+        <Card title="Payme">
+          <p className="pad muted" style={{ margin: 0 }}>
+            Buyurtmalar jadvali hali yo'q — bot Payme versiyasi bilan ishga tushgach paydo bo'ladi.
+          </p>
+        </Card>
+      ) : (
+        <>
+          <div className="kpis three">
+            <Kpi
+              label="Bugun to'landi"
+              value={som(sm.paid_today?.amount || 0)}
+              sub={`${sm.paid_today?.count || 0} ta to'lov`}
+              tone="brass"
+            />
+            <Kpi
+              label="Shu oy Payme orqali"
+              value={som(sm.paid_month?.amount || 0)}
+              sub={`${sm.paid_month?.count || 0} ta to'lov`}
+            />
+            <Kpi
+              label="Havoladan to'lovga (30 kun)"
+              value={sm.conversion_30 == null ? "—" : `${sm.conversion_30}%`}
+              sub={`${sm.paid_30 || 0} / ${sm.links_30 || 0} havola`}
+            />
+            <Kpi
+              label="Hozir to'lanmoqda"
+              value={count("created")}
+              sub="Payme sahifasida (12 soatgacha)"
+              tone={count("created") > 0 ? "warn" : ""}
+            />
+            <Kpi label="To'lanmagan havolalar" value={count("pending")} sub="24 soatda eskiradi" />
+            <Kpi
+              label="Bekor / qaytarilgan"
+              value={count("cancelled") + count("refunded")}
+              sub={`qaytarilgan: ${som(bs.refunded?.amount || 0)} so'm`}
+            />
           </div>
-        </Card>
-      )}
 
-      {!current && !isFetching && (
-        <Card>
-          <Empty title="Navbatda chek yo'q">Barcha to'lovlar ko'rib chiqilgan.</Empty>
-        </Card>
-      )}
-
-      <Card
-        title="Navbat"
-        action={
-          <>
-            <span className="muted" style={{ fontSize: 13 }}>
-              cheki kelgan — <span className="mono">{withProof}</span>
-            </span>
+          <div className="row">
+            <Seg options={FILTERS} value={holat} onChange={setHolat} />
             <span className="spacer" />
-            <Fresh at={fulfilledTimeStamp} busy={isFetching} />
-          </>
-        }
-      >
-        {items.length === 0 ? (
-          <Empty title="Navbat bo'sh">Yangi so'rov kelganda shu yerda ko'rinadi.</Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ism</th>
-                  <th>Tarif va summa</th>
-                  <th className="num">Kutish muddati</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((r, i) => {
-                  const late = waitedHours(r.created_at) >= LATE_HOURS;
-                  return (
-                    <tr
-                      key={r.id}
-                      className="click"
-                      aria-selected={i === index}
-                      style={i === index ? { background: "var(--sunken)" } : undefined}
-                      onClick={() => { setIndex(i); setZoom(false); }}
-                    >
-                      <td>
-                        <span className="who">
-                          <Av name={r.first_name || r.username || "?"} seed={r.user_id} />
-                          <span style={{ minWidth: 0 }}>
-                            <span className="nm">{r.first_name || "Nomsiz"}</span>
-                            <span className="meta">
-                              {r.username ? `@${r.username}` : `ID ${r.user_id}`}
-                            </span>
-                          </span>
-                        </span>
-                      </td>
-                      <td className="mono">
-                        {r.plan_code} · <b style={{ color: "var(--brass)" }}>{som(r.price)}</b>
-                        {!r.proof_file_id && (
-                          <span className="muted"> · chek yo'q</span>
-                        )}
-                      </td>
-                      <td className="num" style={late ? { color: "var(--danger)" } : undefined}>
-                        {waited(r.created_at)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <label className="muted" style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="checkbox" checked={test} onChange={(e) => setTest(e.target.checked)} />
+              Sandbox (test) buyurtmalari · {sm.test_count || 0}
+            </label>
           </div>
-        )}
-      </Card>
+
+          <Card title={test ? "Test buyurtmalari (daromadga kirmaydi)" : "Payme buyurtmalari"}>
+            <div className="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Yaratildi</th>
+                    <th>Buyurtma</th>
+                    <th>Foydalanuvchi</th>
+                    <th>Tarif</th>
+                    <th className="num">Summa</th>
+                    <th>Holat</th>
+                    <th>To'langan / bekor</th>
+                    <th>Payme ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.length === 0 && (
+                    <Empty colSpan={8}>Bu bo'limda buyurtma yo'q.</Empty>
+                  )}
+                  {data.items.map((o) => {
+                    const h = paymeHolat(o.state);
+                    const when = o.perform_time_at || o.cancel_time_at;
+                    const reason = o.cancel_time_at ? bekorSababi(o.cancel_reason) : "";
+                    return (
+                      <tr key={o.id}>
+                        <td className="mono nowrap">{dt(o.created_at)}</td>
+                        <td className="mono">{o.order_id}</td>
+                        <td>
+                          <Link to={`/foydalanuvchilar/${o.user_id}`}>
+                            {o.first_name || o.user_id}
+                          </Link>
+                          {o.username && <span className="muted"> @{o.username}</span>}
+                        </td>
+                        <td>{o.plan}</td>
+                        <td className="num nowrap">{som(o.amount)}</td>
+                        <td className="nowrap">
+                          <Tag kind={h.kind}>{h.label}</Tag>
+                          {o.test && <> <Tag>test</Tag></>}
+                        </td>
+                        <td className="nowrap">
+                          {when ? <span className="mono">{dt(when)}</span> : <span className="muted">—</span>}
+                          {reason && <div className="muted" style={{ fontSize: 12 }}>{reason}</div>}
+                        </td>
+                        <td className="mono muted" title={o.provider_txn_id || ""}>
+                          {o.provider_txn_id ? `${o.provider_txn_id.slice(0, 8)}…` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
     </>
   );
 }

@@ -88,6 +88,25 @@ CREATE TABLE IF NOT EXISTS custom_categories (
 CREATE TABLE IF NOT EXISTS rates (
     day TEXT NOT NULL, currency TEXT NOT NULL, rate REAL NOT NULL,
     source TEXT NOT NULL DEFAULT '', PRIMARY KEY (day, currency));
+CREATE TABLE IF NOT EXISTS payment_orders (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id         TEXT    NOT NULL UNIQUE,
+    user_id          INTEGER NOT NULL,
+    plan             TEXT    NOT NULL,
+    days             INTEGER NOT NULL DEFAULT 0,
+    amount           INTEGER NOT NULL,
+    currency         TEXT    NOT NULL DEFAULT 'UZS',
+    provider         TEXT    NOT NULL DEFAULT 'payme',
+    provider_txn_id  TEXT,
+    provider_time    INTEGER,
+    state            TEXT    NOT NULL DEFAULT 'pending',
+    create_time      INTEGER,
+    perform_time     INTEGER,
+    cancel_time      INTEGER,
+    cancel_reason    INTEGER,
+    created_at       TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL,
+    UNIQUE (provider, provider_txn_id));
 """
 
 

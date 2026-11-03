@@ -60,6 +60,8 @@ export default function System() {
   if (error) return <ErrorBox error={error} onRetry={refetch} />;
 
   const { bot, jobs, errors, events, referrals, categories, rates, server, panel, tables } = data;
+  const pm = data.payme || {};
+  const yesNo = (v) => (v ? "bor" : <b style={{ color: "var(--danger)" }}>yo'q</b>);
   const botTone = !bot.known ? "warn" : bot.alive ? "good" : "bad";
   const botText = !bot.known
     ? "Ma'lumot yo'q"
@@ -295,6 +297,37 @@ export default function System() {
             </Facts>
           </div>
         </Card>
+        <Card title="Payme">
+          <div className="pad">
+            {!pm.env ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Holat noma'lum — bot yangi versiya bilan hali ishga tushmagan.
+              </p>
+            ) : (
+              <Facts>
+                <Fact label="Rejim">
+                  <Tag kind={pm.prod ? "ok" : "warn"}>{pm.prod ? "ishchi" : "test (sandbox)"}</Tag>
+                </Fact>
+                <Fact label="Botda to'lov tugmasi">
+                  <Tag kind={pm.ready ? "ok" : "bad"}>
+                    {pm.ready ? "ko'rinadi" : pm.enabled ? "yo'q — kassa/kalit yetishmaydi" : "o'chiq (PAYME_ENABLED=false)"}
+                  </Tag>
+                </Fact>
+                <Fact label="Kassa ID">{yesNo(pm.merchant)}</Fact>
+                <Fact label="Ishchi kalit">{yesNo(pm.key)}</Fact>
+                <Fact label="Test kaliti">{yesNo(pm.test_key)}</Fact>
+                <Fact label="Checkout">{pm.checkout || "—"}</Fact>
+                <Fact label="Endpoint">{pm.endpoint || "—"}</Fact>
+                <Fact label="Fiskal chek (IKPU)">{pm.fiscal ? "yoqilgan" : "o'chiq"}</Fact>
+                <Fact label="Havola muddati">{pm.order_ttl_hours ? `${pm.order_ttl_hours} soat` : "—"}</Fact>
+                <Fact label="Yozilgan">{pm.updated_at ? dt(pm.updated_at) : "—"}</Fact>
+              </Facts>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid2">
         <Card title="Panel va baza">
           <div className="pad">
             <Facts>

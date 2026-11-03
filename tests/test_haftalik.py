@@ -3,12 +3,8 @@ narxi o'zgaradi, tasdiqlanganda 7 kun beriladi."""
 
 from __future__ import annotations
 
-from datetime import datetime
 
 import plans
-import settings
-import store
-from tests.conftest import add_user
 from tests.test_muhim import app_module, client  # noqa: F401
 
 
@@ -30,10 +26,3 @@ def test_weekly_price_is_editable_in_settings(client):
     assert got["1w"] == 7_900 and got["1m"] == current["1m"]
 
 
-def test_approving_weekly_request_grants_seven_days():
-    add_user(1)
-    rid = store.add_request(1, "1w", 6_900)
-    store.attach_payment_proof(rid, "CHEK", "rasm") if hasattr(store, "attach_payment_proof") else None
-    assert store.approve_request(rid, plans.by_code("1w"), "admin") is not None
-    until = datetime.fromisoformat(store.get_user(1, {777})["subscribed_until"])
-    assert round((until - datetime.now(settings.TZ)).total_seconds() / 86400) == 7

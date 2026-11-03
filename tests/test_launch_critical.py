@@ -129,7 +129,7 @@ def test_user_budget_setting_roundtrip_including_zero(admin):
     client.headers["X-CSRF-Token"] = auth.read_session(token)["c"]
 
     assert client.get("/api/settings").json()["bot"]["ai_user_monthly_budget_usd"] == 0.5
-    body = {"card_number": "", "card_holder": "", "trial_days": 7,
+    body = {"trial_days": 7,
             "ai_monthly_budget_usd": 50, "ai_user_monthly_budget_usd": 0}
     r = client.post("/api/settings", json=body)
     assert r.status_code == 200, r.text

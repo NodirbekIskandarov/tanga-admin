@@ -5,8 +5,8 @@ import { setFinanceDays } from "../store/uiSlice";
 import AiCost from "../components/AiCost";
 import Cashflow from "../components/Cashflow";
 import Fresh from "../components/Fresh";
-import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
-import { amalNomi, dt, som, usd } from "../lib/format";
+import { Card, Empty, ErrorBox, Kpi, Loading, Seg, Tag } from "../components/common";
+import { amalNomi, dt, som, usd, usulNomi } from "../lib/format";
 
 const RANGES = [
   [7, "7 kun"],
@@ -203,6 +203,37 @@ export default function Finance() {
         </Card>
       </div>
 
+      <Card title="Daromad to'lov usuli bo'yicha">
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Usul</th>
+                <th className="num">Shu oy</th>
+                <th className="num">Soni (oy)</th>
+                <th className="num">Jami</th>
+                <th className="num">Soni (jami)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.by_method || []).length === 0 && <Empty colSpan={5}>Daromad yo'q.</Empty>}
+              {(data.by_method || []).map((m) => (
+                <tr key={m.method}>
+                  <td><b>{usulNomi(m.method)}</b></td>
+                  <td className="num">{som(m.month)}</td>
+                  <td className="num">{m.month_n}</td>
+                  <td className="num">{som(m.total)}</td>
+                  <td className="num">{m.n}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="hint pad" style={{ margin: 0 }}>
+          Bekor qilingan («xato yozuv») va Payme test (sandbox) to'lovlari daromadga kirmaydi.
+        </p>
+      </Card>
+
       <Card title="To'lovlar tarixi">
         <div className="tbl-wrap">
           <table>
@@ -213,11 +244,12 @@ export default function Finance() {
                 <th>Tarif</th>
                 <th className="num">Summa</th>
                 <th className="num">Kun</th>
+                <th>Usul</th>
                 <th>Kim qo'shdi</th>
               </tr>
             </thead>
             <tbody>
-              {data.payments.length === 0 && <Empty colSpan={6}>To'lov yo'q.</Empty>}
+              {data.payments.length === 0 && <Empty colSpan={7}>To'lov yo'q.</Empty>}
               {data.payments.map((p) => (
                 <tr key={p.id}>
                   <td className="mono nowrap">{dt(p.created_at)}</td>
@@ -227,8 +259,11 @@ export default function Finance() {
                     </Link>
                   </td>
                   <td>{p.plan_code}</td>
-                  <td className="num">{som(p.amount)}</td>
+                  <td className="num">
+                    {p.voided_at ? <span className="muted" title="Daromaddan chiqarilgan"><s>{som(p.amount)}</s></span> : som(p.amount)}
+                  </td>
                   <td className="num">{p.days}</td>
+                  <td><Tag kind={p.method === "payme" ? "ok" : ""}>{usulNomi(p.method)}</Tag></td>
                   <td className="muted">{p.created_by}</td>
                 </tr>
               ))}

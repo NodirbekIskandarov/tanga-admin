@@ -98,7 +98,7 @@ def test_settings_can_save_founders_price_and_flag_unsold_plans(app_module):
     assert got["f12"]["public"] is True and got["12m"]["public"] is True
     assert got["3m"]["public"] is False and got["6m"]["public"] is False
 
-    body = {"card_number": "", "card_holder": "", "trial_days": 7,
+    body = {"trial_days": 7,
             "ai_monthly_budget_usd": 50, "ai_user_monthly_budget_usd": 0.5,
             "plan_price_f12": 89_000}
     r = client.post("/api/settings", json=body)

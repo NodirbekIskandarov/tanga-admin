@@ -30,7 +30,7 @@ export const api = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithAuth,
   tagTypes: [
-    "Session", "Users", "User", "Requests", "Dashboard", "Finance", "Log",
+    "Session", "Users", "User", "Payme", "Dashboard", "Finance", "Log",
     "Settings", "Broadcast", "System"],
   endpoints: (build) => ({
     // ---- Sessiya ----
@@ -89,18 +89,12 @@ export const api = createApi({
       ],
     }),
 
-    // ---- Obuna so'rovlari ----
-    requests: build.query({
-      query: (holat = "ochiq") => ({ url: "/requests", params: { holat } }),
-      providesTags: ["Requests"],
-    }),
-    decideRequest: build.mutation({
-      query: ({ id, ...body }) => ({
-        url: `/requests/${id}/decide`,
-        method: "POST",
-        body,
+    // ---- Payme to'lovlari (obuna faqat Payme orqali, tasdiq yo'q) ----
+    payme: build.query({
+      query: ({ holat = "", test = false } = {}) => ({
+        url: "/payme", params: { holat, test },
       }),
-      invalidatesTags: ["Requests", "Session", "Dashboard", "Users", "Finance"],
+      providesTags: ["Payme"],
     }),
 
     // ---- Moliya va statistika ----
@@ -197,8 +191,7 @@ export const {
   useUsersQuery,
   useUserQuery,
   useUserActionMutation,
-  useRequestsQuery,
-  useDecideRequestMutation,
+  usePaymeQuery,
   useFinanceQuery,
   useStatsQuery,
   useCashflowQuery,

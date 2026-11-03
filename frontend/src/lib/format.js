@@ -168,3 +168,41 @@ const VOQEALAR = {
 export function voqeaNomi(name) {
   return VOQEALAR[name] || String(name || "—");
 }
+
+// To'lov usuli (payments.method).
+const USULLAR = {
+  payme: "Payme",
+  payme_test: "Payme (test)",
+  qolda: "Qo'lda",
+  sovga: "Sovg'a",
+};
+export function usulNomi(method) {
+  return USULLAR[method] || method || "—";
+}
+
+// Payme buyurtmasi holati (payment_orders.state) va Tag rangi.
+const PAYME_HOLAT = {
+  pending: ["Havola berilgan", "warn"],
+  created: ["Payme'da to'lanmoqda", "warn"],
+  paid: ["To'langan", "ok"],
+  cancelled: ["Bekor qilingan", "bad"],
+  refunded: ["Qaytarilgan", "bad"],
+  expired: ["Eskirgan", ""],
+};
+export function paymeHolat(state) {
+  const [label, kind] = PAYME_HOLAT[state] || [state || "—", ""];
+  return { label, kind };
+}
+
+// Payme bekor qilish sababi (hujjat: 1–5, 10).
+const SABABLAR = {
+  1: "qabul qiluvchi topilmadi",
+  2: "debet xatosi",
+  3: "tranzaksiya xatosi",
+  4: "vaqt tugadi (12 soat)",
+  5: "pul qaytarildi",
+  10: "noma'lum xato",
+};
+export function bekorSababi(reason) {
+  return reason == null ? "" : SABABLAR[reason] || `sabab ${reason}`;
+}

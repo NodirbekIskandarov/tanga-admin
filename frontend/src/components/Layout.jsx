@@ -10,7 +10,7 @@ import { dt } from "../lib/format";
 // nuqtasi: hamma bo'lim bo'yicha qisqacha javob shu yerda.
 const NAV = [
   { to: "/", label: "Umumiy holat", end: true },
-  { to: "/tolovlar", label: "To'lovlar", badge: "pending" },
+  { to: "/tolovlar", label: "To'lovlar" },
   { to: "/foydalanuvchilar", label: "Foydalanuvchilar" },
   { to: "/xabar", label: "Xabarlar" },
   { to: "/statistika", label: "Statistika" },

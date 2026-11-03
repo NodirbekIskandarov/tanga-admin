@@ -30,8 +30,6 @@ export default function Settings() {
     if (!data) return;
     setPrices(Object.fromEntries(data.plans.map((p) => [p.code, group(p.price)])));
     setBot({
-      card_number: data.bot.card_number || "",
-      card_holder: data.bot.card_holder || "",
       trial_days: String(data.bot.trial_days),
       ai_monthly_budget_usd: String(data.bot.ai_monthly_budget_usd),
       ai_user_monthly_budget_usd: String(data.bot.ai_user_monthly_budget_usd ?? 0.5),
@@ -48,8 +46,6 @@ export default function Settings() {
         ...Object.fromEntries(
           Object.entries(prices).map(([code, v]) => [`plan_price_${code}`, toNumber(v)])
         ),
-        card_number: bot.card_number.trim(),
-        card_holder: bot.card_holder.trim(),
         trial_days: Number(bot.trial_days) || 7,
         ai_monthly_budget_usd: Number(bot.ai_monthly_budget_usd) || 50,
         // 0 — ataylab «chegara yo'q», shuning uchun `|| 0.5` emas.
@@ -101,31 +97,10 @@ export default function Settings() {
 
       <Card title="Bot">
         <div className="pad stack-sm">
-          <label className="fld" style={{ margin: 0 }}>
-            <span>To'lov kartasi</span>
-            <input
-              type="text"
-              className="mono"
-              maxLength={32}
-              placeholder="8600 1234 5678 9012"
-              value={bot.card_number ?? ""}
-              onChange={(e) => setBot({ ...bot, card_number: e.target.value })}
-            />
-          </label>
-
-          <label className="fld" style={{ margin: 0 }}>
-            <span>Karta egasining ismi</span>
-            <input
-              type="text"
-              maxLength={64}
-              placeholder="NODIRBEK ISKANDAROV"
-              value={bot.card_holder ?? ""}
-              onChange={(e) => setBot({ ...bot, card_holder: e.target.value })}
-            />
-            <span className="hint">
-              Bot to'lov ko'rsatmasida karta raqami bilan birga shu ism ko'rsatiladi.
-            </span>
-          </label>
+          <p className="hint" style={{ margin: 0 }}>
+            To'lov faqat Payme orqali — karta rekvizitlari kerak emas. Payme
+            holati: <a href="/tolovlar">To'lovlar</a> va <a href="/tizim">Tizim</a>.
+          </p>
 
           <label className="fld" style={{ margin: 0, width: 160 }}>
             <span>Sinov muddati, kun</span>

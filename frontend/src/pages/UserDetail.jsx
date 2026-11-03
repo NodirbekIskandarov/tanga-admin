@@ -9,7 +9,9 @@ import { pushToast } from "../store/uiSlice";
 import {
   Av, Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag, useConfirm,
 } from "../components/common";
-import { amalNomi, day, som, tilNomi, usd, voqeaNomi } from "../lib/format";
+import {
+  amalNomi, bekorSababi, day, dt, paymeHolat, som, tilNomi, usd, usulNomi, voqeaNomi,
+} from "../lib/format";
 
 export default function UserDetail() {
   const { id } = useParams();
@@ -412,6 +414,7 @@ export default function UserDetail() {
                   <tr>
                     <th>Sana</th>
                     <th>Tarif</th>
+                    <th>Usul</th>
                     <th className="num">Summa</th>
                   </tr>
                 </thead>
@@ -420,6 +423,7 @@ export default function UserDetail() {
                     <tr key={p.id}>
                       <td className="mono nowrap">{day(p.created_at)}</td>
                       <td>{p.plan_code}</td>
+                      <td><Tag kind={p.method === "payme" ? "ok" : ""}>{usulNomi(p.method)}</Tag></td>
                       <td className="num">
                         {p.voided_at ? (
                           <span className="muted" title={`Daromaddan chiqarilgan: ${day(p.voided_at)}`}>
@@ -444,10 +448,49 @@ export default function UserDetail() {
             )}
           </Card>
 
-          <Card title="So'rovlari">
-            {u.requests.length === 0 ? (
-              <p className="pad muted" style={{ margin: 0 }}>So'rov yubormagan.</p>
+          <Card title="Payme buyurtmalari">
+            {(u.payme_orders || []).length === 0 ? (
+              <p className="pad muted" style={{ margin: 0 }}>Payme orqali to'lov havolasi olmagan.</p>
             ) : (
+            <div className="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Yaratildi</th>
+                    <th>Buyurtma</th>
+                    <th>Tarif</th>
+                    <th className="num">Summa</th>
+                    <th>Holat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {u.payme_orders.map((o) => {
+                    const h = paymeHolat(o.state);
+                    return (
+                      <tr key={o.id}>
+                        <td className="mono nowrap">{dt(o.created_at)}</td>
+                        <td className="mono">{o.order_id}</td>
+                        <td>{o.plan}</td>
+                        <td className="num nowrap">{som(o.amount)}</td>
+                        <td>
+                          <Tag kind={h.kind}>{h.label}</Tag>
+                          {o.test && <> <Tag>test</Tag></>}
+                          {o.cancel_time_at && (
+                            <div className="muted" style={{ fontSize: 12 }}>{bekorSababi(o.cancel_reason)}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            )}
+          </Card>
+
+          {u.requests.length > 0 && (
+          <Card title="Qo'lda to'lov so'rovlari (arxiv)">
+            {(
             <div className="tbl-wrap">
               <table>
                 <thead>
@@ -472,6 +515,7 @@ export default function UserDetail() {
             </div>
             )}
           </Card>
+          )}
 
           <Card title="Xavfli hudud" className="danger-zone">
             <div className="pad">
