@@ -326,6 +326,10 @@ tbody td { height: 44px; padding: 0 16px; border-bottom: 1px solid var(--border)
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.click { cursor: pointer; }
 tbody tr.click:hover { background: var(--sunken); }
+tfoot th {
+  height: 40px; padding: 0 16px; text-align: left; font-weight: 600;
+  border-top: 1px solid var(--border-strong);
+}
 .num, th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); }
 

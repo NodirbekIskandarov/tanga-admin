@@ -1,3 +1,4 @@
+import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useStatsQuery } from "../store/api";
@@ -77,12 +78,31 @@ function pct(n, of) {
   return of ? `${Math.round((100 * n) / of)}%` : "—";
 }
 
+const PERIODS = [
+  ["bugun", "Bugun"],
+  ["7", "7 kun"],
+  ["30", "30 kun"],
+  ["all", "Hammasi"],
+];
+
+/** «2026-10-27» dan boshlab i-kun: «27.10». */
+function dayLabel(from, i) {
+  const d = new Date(`${from}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + i);
+  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 /**
- * Voronka reklama manbasi bo'yicha. Havola: t.me/<bot>?start=src_<kanal>;
- * «ref» — do'st taklifi; bo'sh — to'g'ridan-to'g'ri kelganlar.
+ * Manbalar: /start parametri bo'yicha (bot hisoblaydi — bot_status).
+ * Faol — kamida 1 kirim/chiqim; 7 kun — ro'yxatdan 7 kun o'tib ham yozgan;
+ * PRO va daromad — faqat haqiqiy Payme to'lovlari. Qatorni bosing — oxirgi
+ * 14 kun, kuniga nechta start.
  */
-function Sources({ rows }) {
-  const name = (s) => (s === "ref" ? "Do'st taklifi" : s || "To'g'ridan-to'g'ri");
+function Sources({ data, period }) {
+  const [open, setOpen] = useState(null);
+  const rep = data.periods[period] || data.periods.all;
+  const t = rep.total;
+  const daily = (src) => data.daily?.[src] || [];
   return (
     <>
       <div className="tbl-wrap">
@@ -91,30 +111,68 @@ function Sources({ rows }) {
             <tr>
               <th>Manba</th>
               <th className="num">Start</th>
-              <th className="num">Rozilik</th>
-              <th className="num">1-yozuv</th>
-              <th className="num">7-kun</th>
-              <th className="num">To'lov</th>
+              <th className="num">Faol</th>
+              <th className="num">7 kun</th>
+              <th className="num">PRO</th>
+              <th className="num">Daromad</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.source || "-"}>
-                <td className={r.source && r.source !== "ref" ? "mono" : ""}>{name(r.source)}</td>
-                <td className="num">{r.start}</td>
-                <td className="num">{r.rozilik} · {pct(r.rozilik, r.start)}</td>
-                <td className="num">{r.yozuv} · {pct(r.yozuv, r.start)}</td>
-                <td className="num">{r.faol7} · {pct(r.faol7, r.start)}</td>
-                <td className="num">{r.tolov} · {pct(r.tolov, r.start)}</td>
-              </tr>
+            {rep.rows.length === 0 && (
+              <tr><td colSpan={6} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
+            )}
+            {rep.rows.map((r) => (
+              <Fragment key={r.source}>
+                <tr
+                  className="click"
+                  onClick={() => setOpen(open === r.source ? null : r.source)}
+                  aria-expanded={open === r.source}
+                >
+                  <td className="mono">{r.source}</td>
+                  <td className="num">{r.start}</td>
+                  <td className="num">{r.faol} · {pct(r.faol, r.start)}</td>
+                  <td className="num">{r.d7} · {pct(r.d7, r.start)}</td>
+                  <td className="num">{r.pro} · {pct(r.pro, r.start)}</td>
+                  <td className="num">{som(r.revenue)}</td>
+                </tr>
+                {open === r.source && (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="hint" style={{ margin: 0 }}>
+                        Oxirgi 14 kun, kuniga start:{" "}
+                        {daily(r.source).map((n, i) => (
+                          <span key={i} className="mono" style={{ marginRight: 10 }}>
+                            {dayLabel(data.daily_from, i)}: <b>{n}</b>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
+          {rep.rows.length > 0 && (
+            <tfoot>
+              <tr>
+                <th>Jami</th>
+                <th className="num">{t.start}</th>
+                <th className="num">{t.faol} · {pct(t.faol, t.start)}</th>
+                <th className="num">{t.d7} · {pct(t.d7, t.start)}</th>
+                <th className="num">{t.pro} · {pct(t.pro, t.start)}</th>
+                <th className="num">{som(t.revenue)}</th>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       <p className="hint pad" style={{ marginTop: 0 }}>
-        Har bir reklama uchun alohida havola bering:{" "}
-        <span className="mono">t.me/hisobchi_tanga_bot?start=src_kanal_nomi</span>{" "}
-        (lotin harf, raqam, «_»). Manba faqat botni birinchi marta ochganda yoziladi.
+        Reklama havolasi — botda <span className="mono">/havola nom</span>:{" "}
+        <span className="mono">t.me/hisobchi_tanga_bot?start=ad_nom</span>. Boshqa
+        formatlar: <span className="mono">ig_nom</span>, <span className="mono">tgads1</span>,{" "}
+        <span className="mono">site</span>; do'st taklifi — «taklif», parametrsiz —
+        «organik», funksiya qo'shilishidan oldingilar — «eski». Manba faqat botni
+        birinchi ochganda yoziladi. Hisoblangan: {data.computed_at?.slice(0, 16).replace("T", " ")}.
       </p>
     </>
   );
@@ -123,6 +181,7 @@ function Sources({ rows }) {
 export default function Stats() {
   const dispatch = useDispatch();
   const range = useSelector((s) => s.ui.statsRange);
+  const [sourcePeriod, setSourcePeriod] = useState("7");
   const { data, isLoading, isFetching, error, refetch, fulfilledTimeStamp } =
     useStatsQuery(range, { pollingInterval: 60000 });
 
@@ -163,9 +222,17 @@ export default function Stats() {
         </Card>
       )}
 
-      {data.funnel?.sources && (
-        <Card title="Reklama kanallari">
-          <Sources rows={data.funnel.sources} />
+      {data.sources?.periods && (
+        <Card
+          title="Manbalar"
+          action={
+            <>
+              <span className="spacer" />
+              <Seg options={PERIODS} value={sourcePeriod} onChange={setSourcePeriod} />
+            </>
+          }
+        >
+          <Sources data={data.sources} period={sourcePeriod} />
         </Card>
       )}
 

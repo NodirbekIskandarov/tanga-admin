@@ -1046,24 +1046,22 @@ def funnel(owner_ids: set[int], days: int | None = None) -> list[dict]:
             for k, label in FUNNEL_STEPS]
 
 
-def funnel_by_source(owner_ids: set[int]) -> list[dict]:
-    """Voronka reklama manbasi bo'yicha (K8): bot /start src_<kanal> ni
-    `users.source` ga yozadi, do'st taklifi — «ref», bo'sh — to'g'ridan.
-
-    Qaysi kanal odam olib kelyapti emas, qaysi kanal YOZUV qiladigan va
-    TO'LAYDIGAN odam olib kelyapti — reklama byudjeti shunga qarab
-    taqsimlanadi. Eng ko'p start bergan manba birinchi.
-    """
-    users, entry_days, paid = _funnel_data(owner_ids)
-    groups: dict[str, list[dict]] = {}
-    for u in users:
-        groups.setdefault(u.get("source") or "", []).append(u)
-    out = []
-    for source, group in groups.items():
-        counts = _funnel_counts(group, entry_days, paid)
-        out.append({"source": source, **counts})
-    out.sort(key=lambda r: (-r["start"], r["source"]))
-    return out
+def sources_report() -> dict:
+    """Manbalar jadvali — bot hisoblab bot_status['sources'] ga yozadi (har
+    10 daqiqada, faqat sonlar). «Faol» va «7 kun» kirim/chiqim yozuvlariga
+    qaraydi — ular shaxsiy bazada, panelda kalit yo'q; shuning uchun
+    raqamlar botdagi /manbalar bilan bir xil bo'lishi uchun bot hisoblaydi."""
+    with conn() as c:
+        if not _has_table(c, "bot_status"):
+            return {}
+        row = c.execute("SELECT value FROM bot_status WHERE key = 'sources'").fetchone()
+    if not row:
+        return {}
+    try:
+        data = json.loads(row["value"] or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) and "periods" in data else {}
 
 
 def _funnel_data(owner_ids: set[int]) -> tuple[list[dict], dict[int, list[str]], set[int]]:

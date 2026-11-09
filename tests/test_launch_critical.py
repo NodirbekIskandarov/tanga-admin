@@ -100,23 +100,24 @@ def test_funnel_counts_each_step():
     assert {s["key"]: s["count"] for s in store.funnel({777}, 30)}["start"] == 0
 
 
-def test_funnel_by_source():
-    from tests.conftest import add_user
-    add_user(1, source="insta")
-    add_user(2, source="insta", consent_at=None)
-    add_user(3, source="ref")
-    add_user(4)                                               # to'g'ridan
-    add_user(777, source="insta")                             # ega — sanalmaydi
+def test_sources_report_reads_bot_numbers():
+    import json
+    assert store.sources_report() == {}
+    data = {"computed_at": "2026-11-09T10:00:00+05:00", "daily_from": "2026-10-27",
+            "periods": {"all": {"period": "all", "rows": [
+                {"source": "reklama:qalampir", "start": 3, "faol": 1, "d7": 1, "pro": 1,
+                 "revenue": 35900}], "total": {"start": 3, "faol": 1, "d7": 1, "pro": 1,
+                                               "revenue": 35900}}},
+            "daily": {"reklama:qalampir": [0] * 13 + [2]}}
     with store.conn() as c:
-        c.execute("INSERT INTO entry_counts VALUES (1, '2026-10-01', 2)")
-    store.add_payment(3, "1m", 19_000, 30, "admin")
-
-    rows = {r["source"]: r for r in store.funnel_by_source({777})}
-    assert rows["insta"]["start"] == 2 and rows["insta"]["rozilik"] == 1
-    assert rows["insta"]["yozuv"] == 1 and rows["insta"]["tolov"] == 0
-    assert rows["ref"]["tolov"] == 1
-    assert rows[""]["start"] == 1
-    assert [r["source"] for r in store.funnel_by_source({777})][0] == "insta"
+        c.execute("CREATE TABLE IF NOT EXISTS bot_status (key TEXT PRIMARY KEY, value TEXT, "
+                  "updated_at TEXT)")
+        c.execute("INSERT OR REPLACE INTO bot_status VALUES ('sources', ?, '')",
+                  (json.dumps(data),))
+    assert store.sources_report()["periods"]["all"]["total"]["revenue"] == 35900
+    with store.conn() as c:
+        c.execute("UPDATE bot_status SET value = 'buzuq' WHERE key = 'sources'")
+    assert store.sources_report() == {}
 
 
 # ------------------------------------------------------- K1 sozlamasi --
