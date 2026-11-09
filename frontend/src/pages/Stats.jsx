@@ -94,7 +94,7 @@ function dayLabel(from, i) {
 
 /**
  * Manbalar: /start parametri bo'yicha (bot hisoblaydi — bot_status).
- * Faol — kamida 1 kirim/chiqim; 7 kun — ro'yxatdan 7 kun o'tib ham yozgan;
+ * Faol — kamida 1 kirim/chiqim; 3 kun / 7 kun — 3- va 7-kundan keyin ham yozgan;
  * PRO va daromad — faqat haqiqiy Payme to'lovlari. Qatorni bosing — oxirgi
  * 14 kun, kuniga nechta start.
  */
@@ -112,6 +112,7 @@ function Sources({ data, period }) {
               <th>Manba</th>
               <th className="num">Start</th>
               <th className="num">Faol</th>
+              <th className="num">3 kun</th>
               <th className="num">7 kun</th>
               <th className="num">PRO</th>
               <th className="num">Daromad</th>
@@ -119,7 +120,7 @@ function Sources({ data, period }) {
           </thead>
           <tbody>
             {rep.rows.length === 0 && (
-              <tr><td colSpan={6} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
+              <tr><td colSpan={7} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
             )}
             {rep.rows.map((r) => (
               <Fragment key={r.source}>
@@ -131,13 +132,14 @@ function Sources({ data, period }) {
                   <td className="mono">{r.source}</td>
                   <td className="num">{r.start}</td>
                   <td className="num">{r.faol} · {pct(r.faol, r.start)}</td>
+                  <td className="num">{r.d3 ?? 0} · {pct(r.d3 ?? 0, r.start)}</td>
                   <td className="num">{r.d7} · {pct(r.d7, r.start)}</td>
                   <td className="num">{r.pro} · {pct(r.pro, r.start)}</td>
                   <td className="num">{som(r.revenue)}</td>
                 </tr>
                 {open === r.source && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       <div className="hint" style={{ margin: 0 }}>
                         Oxirgi 14 kun, kuniga start:{" "}
                         {daily(r.source).map((n, i) => (
@@ -158,6 +160,7 @@ function Sources({ data, period }) {
                 <th>Jami</th>
                 <th className="num">{t.start}</th>
                 <th className="num">{t.faol} · {pct(t.faol, t.start)}</th>
+                <th className="num">{t.d3 ?? 0} · {pct(t.d3 ?? 0, t.start)}</th>
                 <th className="num">{t.d7} · {pct(t.d7, t.start)}</th>
                 <th className="num">{t.pro} · {pct(t.pro, t.start)}</th>
                 <th className="num">{som(t.revenue)}</th>
