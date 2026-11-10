@@ -172,7 +172,7 @@ function Sources({ data, period }) {
       <p className="hint pad" style={{ marginTop: 0 }}>
         Reklama havolasi — botda <span className="mono">/havola nom</span>:{" "}
         <span className="mono">t.me/hisobchi_tanga_bot?start=ad_nom</span>. Boshqa
-        formatlar: <span className="mono">ig_nom</span>, <span className="mono">tgads1</span>,{" "}
+        formatlar: <span className="mono">ig_nom</span>, <span className="mono">tg_ads1</span> (Telegram Ads),{" "}
         <span className="mono">site</span>; do'st taklifi — «taklif», parametrsiz —
         «organik», funksiya qo'shilishidan oldingilar — «eski». Manba faqat botni
         birinchi ochganda yoziladi. Hisoblangan: {data.computed_at?.slice(0, 16).replace("T", " ")}.
