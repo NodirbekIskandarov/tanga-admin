@@ -408,6 +408,25 @@ def api_users(session: dict = Depends(current_admin),
     }
 
 
+@app.get("/api/regulars")
+@cached_endpoint
+def api_regulars(session: dict = Depends(current_admin),
+                 segment: str = Query("faol", max_length=20),
+                 tartib: str = Query("seriya", max_length=20),
+                 q: str = Query("", max_length=64),
+                 sahifa: int = Query(1, ge=1, le=10_000)):
+    """Muntazamlik: kunma-kun yozuv kiritayotganlar (entry_counts — faqat
+    kunlik SON), segmentlar va kunlik faollik grafigi."""
+    if segment not in store.MUNTAZAM_SEGMENTLAR:
+        raise HTTPException(400, "Noma'lum segment")
+    if tartib not in store.MUNTAZAM_TARTIB:
+        raise HTTPException(400, "Noma'lum tartib")
+    per = 40
+    data = store.regulars(OWNER_IDS, segment, tartib, q, per, (sahifa - 1) * per)
+    return {**data, "page": sahifa, "pages": max(1, (data["total"] + per - 1) // per),
+            "segments": store.MUNTAZAM_SEGMENTLAR}
+
+
 @app.get("/api/users/{user_id}")
 def api_user(user_id: int, session: dict = Depends(current_admin)):
     user = store.get_user(user_id, OWNER_IDS)
@@ -1037,6 +1056,23 @@ def api_export_users(request: Request, session: dict = Depends(current_admin)):
           r["lang"], r["source"], "ha" if r["consented"] else "yoq",
           r["bot_blocked_at"] or "", r.get("last_entry_day") or ""]
          for r in rows))
+
+
+@app.get("/api/export/regulars.csv")
+def api_export_regulars(request: Request, session: dict = Depends(current_admin),
+                        segment: str = Query("faol", max_length=20)):
+    if segment not in store.MUNTAZAM_SEGMENTLAR:
+        raise HTTPException(400, "Noma'lum segment")
+    data = store.regulars(OWNER_IDS, segment, "seriya", "", 10 ** 9, 0)
+    store.log_action(session["u"], "eksport", f"muntazamlik:{segment}", ip=client_ip(request))
+    return _csv_response(
+        f"muntazamlik-{segment}.csv",
+        ["user_id", "ism", "username", "holat", "joriy_seriya", "eng_uzun_seriya",
+         "faol_kun_7", "faol_kun_30", "yozuv_30_kun", "oxirgi_yozuv", "bugun_yozgan",
+         "manba"],
+        ([r["user_id"], r["first_name"], r["username"] or "", r["state"], r["streak"],
+          r["best"], r["d7"], r["d30"], r["entries30"], r["last_day"] or "",
+          "ha" if r["wrote_today"] else "yo'q", r["source"]] for r in data["items"]))
 
 
 @app.get("/api/export/payments.csv")

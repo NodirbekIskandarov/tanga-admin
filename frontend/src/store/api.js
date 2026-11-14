@@ -69,6 +69,14 @@ export const api = createApi({
       }),
       providesTags: ["Users"],
     }),
+    // Muntazamlik: kunma-kun yozuv kiritayotganlar, segmentlar va grafik.
+    regulars: build.query({
+      query: ({ segment = "faol", tartib = "seriya", q = "", sahifa = 1 }) => ({
+        url: "/regulars",
+        params: { segment, tartib, q, sahifa },
+      }),
+      providesTags: ["Users"],
+    }),
     user: build.query({
       query: (id) => `/users/${id}`,
       providesTags: (r, e, id) => [{ type: "User", id }],
@@ -206,5 +214,6 @@ export const {
   useLogQuery,
   useAiCostQuery,
   useSystemQuery,
+  useRegularsQuery,
   useUpdateCategoryMutation,
 } = api;

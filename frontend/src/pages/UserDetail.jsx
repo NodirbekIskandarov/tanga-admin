@@ -9,6 +9,7 @@ import { pushToast } from "../store/uiSlice";
 import {
   Av, Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag, useConfirm,
 } from "../components/common";
+import { Calendar, streakText } from "../components/Activity";
 import {
   amalNomi, bekorSababi, day, dt, paymeHolat, som, tilNomi, usd, usulNomi, voqeaNomi,
 } from "../lib/format";
@@ -292,6 +293,27 @@ export default function UserDetail() {
             </div>
           </Card>
 
+          {u.activity && (
+            <Card title="Faollik">
+              <div className="pad stack-sm">
+                <p style={{ margin: 0, fontSize: 14 }}>{streakText(u.activity)}</p>
+                <Facts>
+                  <Fact label="Joriy seriya">{u.activity.streak} kun</Fact>
+                  <Fact label="Eng uzun seriya">{u.activity.best} kun</Fact>
+                  <Fact label="Oxirgi 7 kun">{u.activity.d7} kun faol</Fact>
+                  <Fact label="Oxirgi 30 kun">{u.activity.d30} kun faol</Fact>
+                  <Fact label="Jami faol kunlar">{u.activity.active_total}</Fact>
+                  <Fact label="Birinchi yozuv">{day(u.activity.first_day)}</Fact>
+                </Facts>
+                <Calendar cells={u.activity.calendar} weeks={u.activity.weeks} />
+                <p className="hint" style={{ margin: 0 }}>
+                  Har katak — bir kun, rang — o'sha kuni kiritilgan yozuvlar soni.
+                  Yozuvlarning o'zi ko'rinmaydi, faqat soni.
+                </p>
+              </div>
+            </Card>
+          )}
+
           <Card
             title="Shaxsiy xabar yuborish"
             action={
@@ -342,9 +364,17 @@ export default function UserDetail() {
                     ? <Tag kind="bad">botni bloklagan · {day(u.bot_blocked_at)}</Tag>
                     : "ochiq"}
                 </Fact>
-                <Fact label="Oxirgi yozuv">{day(u.last_entry_day)}</Fact>
+                {/* «Faollik» kartasi bilan bir manbadan (kunlik yozuvlar soni):
+                    ilgari bu yerda botning o'z hisobi (users.streak) turardi va
+                    Mini App'dan kiritilgan yozuvlarni sanamagani uchun ikkita
+                    karta ikki xil seriya ko'rsatardi. */}
+                <Fact label="Oxirgi yozuv">
+                  {day(u.activity?.last_day || u.last_entry_day)}
+                </Fact>
                 <Fact label="Seriya (kun)">
-                  {u.streak ?? 0} · eng uzun {u.best_streak ?? 0}
+                  {u.activity
+                    ? `${u.activity.streak} · eng uzun ${u.activity.best}`
+                    : `${u.streak ?? 0} · eng uzun ${u.best_streak ?? 0}`}
                 </Fact>
                 <Fact label="Kunlik eslatma" mono={false}>
                   {u.reminder_off

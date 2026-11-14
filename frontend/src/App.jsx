@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Payments from "./pages/Payments";
 import Users from "./pages/Users";
+import Regulars from "./pages/Regulars";
 import UserDetail from "./pages/UserDetail";
 import Broadcast from "./pages/Broadcast";
 import Stats from "./pages/Stats";
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/tolovlar" element={<Payments />} />
           <Route path="/foydalanuvchilar" element={<Users />} />
+          <Route path="/muntazamlik" element={<Regulars />} />
           <Route path="/xabar" element={<Broadcast />} />
           <Route path="/statistika" element={<Stats />} />
           <Route path="/tizim" element={<System />} />

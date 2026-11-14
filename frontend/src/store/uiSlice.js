@@ -6,6 +6,7 @@ import { createSlice, nanoid } from "@reduxjs/toolkit";
 const initialState = {
   userFilters: { q: "", holat: "", tarif: "", faollik: "", segment: "", til: "", manba: "",
                  tartib: "yangi", sahifa: 1 },
+  regularFilters: { segment: "faol", tartib: "seriya", q: "", sahifa: 1 },
   requestFilter: "ochiq",
   financeDays: 30,
   statsRange: "oylik",
@@ -31,6 +32,13 @@ const uiSlice = createSlice({
         ...state.userFilters,
         ...payload,
         ...(resetPage && payload.sahifa === undefined ? { sahifa: 1 } : {}),
+      };
+    },
+    setRegularFilters(state, { payload }) {
+      // Filtr o'zgarsa birinchi sahifaga qaytiladi.
+      const resetPage = payload.sahifa === undefined;
+      state.regularFilters = {
+        ...state.regularFilters, ...payload, ...(resetPage ? { sahifa: 1 } : {}),
       };
     },
     setRequestFilter(state, { payload }) {
@@ -73,6 +81,7 @@ const uiSlice = createSlice({
 
 export const {
   setUserFilters,
+  setRegularFilters,
   setRequestFilter,
   setFinanceDays,
   setStatsRange,

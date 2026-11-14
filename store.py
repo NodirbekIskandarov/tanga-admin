@@ -618,6 +618,8 @@ def get_user(user_id: int, owner_ids: set[int] | None = None) -> dict | None:
             u["referrals"] = int(c.execute(
                 "SELECT COUNT(*) FROM users WHERE referred_by = ?",
                 (user_id,)).fetchone()[0])
+        # Kunma-kun faollik: seriya va 12 haftalik kalendar (faqat kunlik SON).
+        u["activity"] = user_activity(user_id, c)
         # Bot yozgan hodisalar (start, paywall, sinov tugadi...) — odam
         # nega to'xtaganini tushunish uchun. Moliyaviy mazmun yo'q.
         u["events"] = []
@@ -1947,4 +1949,211 @@ def ai_cost_series(period: str = "kun", points: int = 0) -> dict:
         "avg_usd": round(sum(active) / len(active), 4) if active else 0.0,
         "max_usd": round(max((i["cost_usd"] for i in items), default=0.0), 4),
         "by_operation": ops,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Muntazamlik: kunma-kun faollik
+# --------------------------------------------------------------------------- #
+#
+# Manba — `entry_counts` (har kun nechta yozuv kiritilgani, faqat SON).
+# Moliyaviy mazmun yo'q: «12-noyabrda 3 ta yozuv» odamning nimaga pul
+# sarflaganini aytmaydi, lekin odati bor-yo'qligini ko'rsatadi. Bot demo
+# yozuvni (☕ tugma) bu sanoqqa qo'shmaydi — faqat odamning o'zi kiritgani.
+#
+# «Faol kun» — kamida bitta yozuv kiritilgan kun (Toshkent sanasi). Sana —
+# yozuvning o'z sanasi: «kecha taksi 20 ming» kechagi kunga tushadi. Kelajak
+# sanalar (xato kiritilgan) hisobga olinmaydi.
+
+STREAK_MIN = 2            # «seriyada»: kamida shuncha kun ketma-ket
+REGULAR_DAYS = 4          # «muntazam»: oxirgi 7 kundan kamida shuncha kun
+LAPSED_BEFORE = 3         # «tushib qolgan»: undan oldingi 3 haftada shuncha kun
+STRIP_DAYS = 14           # ro'yxatdagi kichik kalendar
+CALENDAR_WEEKS = 12       # foydalanuvchi kartasidagi kalendar
+
+MUNTAZAM_SEGMENTLAR = {
+    "faol": "Oxirgi 30 kunda yozgan",
+    "seriya": f"Seriyada ({STREAK_MIN}+ kun ketma-ket)",
+    "muntazam": f"Muntazam (7 kundan {REGULAR_DAYS}+)",
+    "xavf": "Seriya uzilay deb turibdi",
+    "tushgan": "Tushib qolgan",
+}
+
+MUNTAZAM_TARTIB = ("seriya", "hafta", "oy", "rekord", "oxirgi", "yozuv")
+
+
+def _entry_days(c, user_id: int | None = None) -> dict[int, dict[date, int]]:
+    """{user_id: {kun: yozuvlar soni}} — faqat bugungacha bo'lgan kunlar."""
+    today_ = today()
+    sql, args = "SELECT user_id, day, n FROM entry_counts WHERE n > 0", []
+    if user_id is not None:
+        sql += " AND user_id = ?"
+        args.append(user_id)
+    out: dict[int, dict[date, int]] = {}
+    for uid, raw, n in c.execute(sql, args).fetchall():
+        try:
+            d = date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            continue
+        if d <= today_:
+            out.setdefault(uid, {})[d] = int(n)
+    return out
+
+
+def activity_profile(days: dict[date, int], today_: date | None = None) -> dict:
+    """Bitta odamning faollik ko'rsatkichlari (kunlik sanoqdan)."""
+    today_ = today_ or today()
+    yesterday = today_ - timedelta(days=1)
+
+    # Joriy seriya: bugun yozgan bo'lsa bugundan, yozmagan bo'lsa kechadan
+    # orqaga sanaladi — bugun hali tugamagan, seriya uzilgan emas.
+    cur = today_ if today_ in days else yesterday
+    streak = 0
+    while cur in days:
+        streak += 1
+        cur -= timedelta(days=1)
+
+    best = run = 0
+    prev = None
+    for d in sorted(days):
+        run = run + 1 if prev is not None and d - prev == timedelta(days=1) else 1
+        best = max(best, run)
+        prev = d
+
+    def active_in(first: int, last: int) -> int:
+        """[bugun-last, bugun-first] oralig'idagi faol kunlar soni."""
+        lo, hi = today_ - timedelta(days=last), today_ - timedelta(days=first)
+        return sum(1 for d in days if lo <= d <= hi)
+
+    d7, d30 = active_in(0, 6), active_in(0, 29)
+    prior = active_in(7, 27)                     # oxirgi haftadan oldingi 3 hafta
+    wrote_today = today_ in days
+    return {
+        "streak": streak,
+        "best": best,
+        "d7": d7,
+        "d30": d30,
+        "entries30": sum(n for d, n in days.items() if (today_ - d).days < 30),
+        "active_total": len(days),
+        "first_day": min(days).isoformat() if days else None,
+        "last_day": max(days).isoformat() if days else None,
+        "wrote_today": wrote_today,
+        "strip": [days.get(today_ - timedelta(days=i), 0) for i in range(STRIP_DAYS - 1, -1, -1)],
+        "segments": [key for key, ok in (
+            ("faol", d30 > 0),
+            ("seriya", streak >= STREAK_MIN),
+            ("muntazam", d7 >= REGULAR_DAYS),
+            # Kecha ham, undan oldin ham yozgan, bugun hali yo'q: bugun yozmasa
+            # seriya uziladi — eslatish uchun eng to'g'ri payt.
+            ("xavf", streak >= STREAK_MIN and not wrote_today),
+            # Avval muntazam yozgan, oxirgi hafta umuman yo'q.
+            ("tushgan", d7 == 0 and prior >= LAPSED_BEFORE),
+        ) if ok],
+    }
+
+
+def user_activity(user_id: int, c=None) -> dict:
+    """Foydalanuvchi kartasi uchun: ko'rsatkichlar va 12 haftalik kalendar.
+
+    Kalendar haftalar bo'yicha (dushanbadan): oxirgi ustunda bugun bor,
+    bugundan keyingi kunlar `None` (chizilmaydi)."""
+    if c is None:
+        with conn() as c2:
+            return user_activity(user_id, c2)
+    days = _entry_days(c, user_id).get(user_id, {})
+    today_ = today()
+    start = today_ - timedelta(days=today_.weekday() + 7 * (CALENDAR_WEEKS - 1))
+    calendar = []
+    for i in range(CALENDAR_WEEKS * 7):
+        d = start + timedelta(days=i)
+        calendar.append({"day": d.isoformat(), "n": days.get(d, 0) if d <= today_ else None})
+    profile = activity_profile(days, today_)
+    profile.pop("strip")
+    return {**profile, "calendar": calendar, "weeks": CALENDAR_WEEKS}
+
+
+def regulars(owner_ids: set[int] | None = None, segment: str = "faol",
+             sort: str = "seriya", search: str = "", limit: int = 40,
+             offset: int = 0) -> dict:
+    """Muntazamlik sahifasi: ro'yxat (segment, qidiruv, tartib), segmentlar
+    bo'yicha sonlar, umumiy ko'rsatkichlar va 30 kunlik kunlik faollik.
+
+    Egalar hisobga kirmaydi. Hammasi bitta o'tishda — foydalanuvchilar soni
+    minglab bo'lsa ham kunlik sanoq jadvali kichik."""
+    owner_ids = owner_ids or set()
+    segment = segment if segment in MUNTAZAM_SEGMENTLAR else "faol"
+    sort = sort if sort in MUNTAZAM_TARTIB else "seriya"
+    today_ = today()
+    with conn() as c:
+        by_user = _entry_days(c)
+        users = {r["user_id"]: dict(r) for r in c.execute("SELECT * FROM users").fetchall()}
+
+    profiles: dict[int, dict] = {}
+    for uid, days in by_user.items():
+        if uid in owner_ids or uid not in users:
+            continue
+        profiles[uid] = activity_profile(days, today_)
+
+    counts = {key: sum(1 for p in profiles.values() if key in p["segments"])
+              for key in MUNTAZAM_SEGMENTLAR}
+
+    # Kunlik faol foydalanuvchilar (30 kun): yangilar — o'sha kun birinchi
+    # marta yozganlar, qolgani — qaytib kelganlar.
+    first_day = {uid: min(by_user[uid]) for uid in profiles}
+    series = []
+    for i in range(29, -1, -1):
+        d = today_ - timedelta(days=i)
+        active = [uid for uid in profiles if d in by_user[uid]]
+        new = sum(1 for uid in active if first_day[uid] == d)
+        series.append({"day": d.isoformat(), "active": len(active), "new": new,
+                       "returning": len(active) - new})
+
+    # Yopishqoqlik: kechagacha 7 kunlik o'rtacha kunlik faollar / kechagacha
+    # 30 kun ichida kamida bir marta yozganlar. Bugun hali tugamagani uchun
+    # kirmaydi (aks holda ertalab har doim past chiqardi).
+    window = [today_ - timedelta(days=i) for i in range(1, 31)]
+    mau = sum(1 for uid in profiles if any(d in by_user[uid] for d in window))
+    dau7 = sum(sum(1 for uid in profiles if d in by_user[uid]) for d in window[:7]) / 7
+    summary = {
+        "today": series[-1]["active"],
+        "yesterday": series[-2]["active"],
+        "mau": mau,
+        "dau7": round(dau7, 1),
+        "stickiness": round(100 * dau7 / mau, 1) if mau else None,
+        "streak7": sum(1 for p in profiles.values() if p["streak"] >= 7),
+        "best_streak": max((p["best"] for p in profiles.values()), default=0),
+        "ever": len(profiles),
+    }
+
+    rows = []
+    needle = search.strip().lower()
+    for uid, p in profiles.items():
+        if segment not in p["segments"]:
+            continue
+        u = users[uid]
+        if needle and not (needle in (u.get("first_name") or "").lower()
+                           or needle in (u.get("username") or "").lower()
+                           or needle in str(uid)):
+            continue
+        rows.append({
+            "user_id": uid, "first_name": u.get("first_name") or "",
+            "username": u.get("username"), "state": access_state(u, owner_ids),
+            "source": u.get("source") or "", "created_at": u.get("created_at"),
+            "bot_blocked": bool(u.get("bot_blocked_at")),
+            **{k: v for k, v in p.items() if k != "segments"},
+        })
+    keys = {
+        "seriya": lambda r: (r["streak"], r["d7"], r["last_day"] or ""),
+        "hafta": lambda r: (r["d7"], r["streak"], r["last_day"] or ""),
+        "oy": lambda r: (r["d30"], r["d7"], r["last_day"] or ""),
+        "rekord": lambda r: (r["best"], r["streak"], r["last_day"] or ""),
+        "oxirgi": lambda r: (r["last_day"] or "", r["streak"]),
+        "yozuv": lambda r: (r["entries30"], r["d30"]),
+    }
+    rows.sort(key=keys[sort], reverse=True)
+    return {
+        "segment": segment, "sort": sort, "items": rows[offset:offset + limit],
+        "total": len(rows), "counts": counts, "summary": summary, "series": series,
+        "rules": {"streak_min": STREAK_MIN, "regular_days": REGULAR_DAYS,
+                  "lapsed_before": LAPSED_BEFORE, "strip_days": STRIP_DAYS},
     }

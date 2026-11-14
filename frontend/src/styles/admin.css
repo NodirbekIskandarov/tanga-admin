@@ -482,6 +482,49 @@ tfoot th {
   font-family: var(--mono); font-size: 12px; color: var(--text-3); text-align: center;
 }
 
+/* Kunlik faol foydalanuvchilar: pastda qaytgan, tepada yangi (ustma-ust) */
+.sbars { display: flex; align-items: flex-end; gap: 3px; height: 160px; }
+.sbar {
+  flex: 1; min-width: 0; height: 100%;
+  display: flex; flex-direction: column; gap: 6px; justify-content: flex-end;
+}
+.sbars { overflow: hidden; padding-bottom: 2px; }
+.sbar .track { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
+.sbar .track > span { display: block; width: 100%; }
+.sbar .new { background: var(--brass); border-radius: 2px 2px 0 0; }
+.sbar .ret { background: var(--success); }
+/* Sana yorlig'i ustun o'rtasida; oxirgisi o'ng chetga tekislanadi — aks holda
+   tor ekranda kartadan chiqib, sahifani gorizontal surardi. */
+.sbar .lab { position: relative; height: 14px; }
+.sbar .lab > span {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap;
+}
+.sbar:last-child .lab > span { left: auto; right: 0; transform: none; }
+
+/* Ko'p variantli segment tanlagich tor ekranda bir qatorda suriladi. */
+.seg-scroll { max-width: 100%; overflow-x: auto; }
+.seg-scroll .seg button { white-space: nowrap; }
+
+/* Faollik kataklari: ro'yxatdagi chiziq va kartadagi kalendar */
+.strip { display: inline-flex; gap: 2px; vertical-align: middle; }
+.strip i, .heat i, .heat-legend i {
+  width: 10px; height: 10px; border-radius: 2px; display: block; background: var(--sunken);
+}
+.strip i.l1, .heat i.l1, .heat-legend i.l1 { background: color-mix(in srgb, var(--success) 40%, var(--sunken)); }
+.strip i.l2, .heat i.l2, .heat-legend i.l2 { background: color-mix(in srgb, var(--success) 70%, var(--sunken)); }
+.strip i.l3, .heat i.l3, .heat-legend i.l3 { background: var(--success); }
+.heat i.none { background: transparent; }
+.heat-wrap { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; }
+.heat { display: flex; gap: 3px; }
+.heat-col, .heat-days { display: flex; flex-direction: column; gap: 3px; }
+.heat i { width: 12px; height: 12px; }
+.heat-days span {
+  height: 12px; font-size: 10px; line-height: 12px; color: var(--text-3);
+  font-family: var(--mono); width: 18px;
+}
+.heat-legend { display: flex; gap: 4px; align-items: center; font-size: 11px; color: var(--text-3); }
+
 /* --------------------------------------------------------------------- *
  * Kirish sahifasi
  * --------------------------------------------------------------------- */

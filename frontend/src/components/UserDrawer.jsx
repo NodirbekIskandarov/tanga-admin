@@ -4,6 +4,7 @@ import { useDispatch } from "react-redux";
 import { useUserActionMutation, useUserQuery } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import { Av, Fact, Facts, Loading, Modal, Tag } from "./common";
+import { Calendar, streakText } from "./Activity";
 import { day, dt, som, tilNomi } from "../lib/format";
 
 /**
@@ -118,6 +119,19 @@ export default function UserDrawer({ userId, onClose }) {
                         : "ochiq"}
                   </Fact>
                 </Facts>
+
+                {u.activity && (
+                  <div className="group">
+                    <div className="lbl">Faollik — {streakText(u.activity)}</div>
+                    <Facts>
+                      <Fact label="Joriy seriya">{u.activity.streak} kun</Fact>
+                      <Fact label="Eng uzun seriya">{u.activity.best} kun</Fact>
+                      <Fact label="Oxirgi 7 kun">{u.activity.d7} kun</Fact>
+                      <Fact label="Oxirgi 30 kun">{u.activity.d30} kun</Fact>
+                    </Facts>
+                    <Calendar cells={u.activity.calendar} weeks={u.activity.weeks} />
+                  </div>
+                )}
 
                 <div className="group">
                   <div className="lbl">To'lov tarixi</div>
