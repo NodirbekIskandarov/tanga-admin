@@ -85,6 +85,15 @@ const PERIODS = [
   ["all", "Hammasi"],
 ];
 
+/**
+ * trial→PRO: sinovi tugaganlar (yoki sinovda to'laganlar) orasida to'laganlar.
+ * Hech kimning sinovi tugamagan bo'lsa — «—». Eski bot ma'lumotida maydon yo'q.
+ */
+function trialPro(r) {
+  if (!r.trial_end) return "—";
+  return `${r.trial_pro} / ${r.trial_end} · ${pct(r.trial_pro, r.trial_end)}`;
+}
+
 /** «2026-10-27» dan boshlab i-kun: «27.10». */
 function dayLabel(from, i) {
   const d = new Date(`${from}T00:00:00Z`);
@@ -115,12 +124,13 @@ function Sources({ data, period }) {
               <th className="num">3 kun</th>
               <th className="num">7 kun</th>
               <th className="num">PRO</th>
+              <th className="num" title="Sinovi tugaganlarning (yoki sinovda to'laganlarning) necha foizi to'lagan">trial→PRO</th>
               <th className="num">Daromad</th>
             </tr>
           </thead>
           <tbody>
             {rep.rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
+              <tr><td colSpan={8} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
             )}
             {rep.rows.map((r) => (
               <Fragment key={r.source}>
@@ -135,11 +145,12 @@ function Sources({ data, period }) {
                   <td className="num">{r.d3 ?? 0} · {pct(r.d3 ?? 0, r.start)}</td>
                   <td className="num">{r.d7} · {pct(r.d7, r.start)}</td>
                   <td className="num">{r.pro} · {pct(r.pro, r.start)}</td>
+                  <td className="num">{trialPro(r)}</td>
                   <td className="num">{som(r.revenue)}</td>
                 </tr>
                 {open === r.source && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <div className="hint" style={{ margin: 0 }}>
                         Oxirgi 14 kun, kuniga start:{" "}
                         {daily(r.source).map((n, i) => (
@@ -163,6 +174,7 @@ function Sources({ data, period }) {
                 <th className="num">{t.d3 ?? 0} · {pct(t.d3 ?? 0, t.start)}</th>
                 <th className="num">{t.d7} · {pct(t.d7, t.start)}</th>
                 <th className="num">{t.pro} · {pct(t.pro, t.start)}</th>
+                <th className="num">{trialPro(t)}</th>
                 <th className="num">{som(t.revenue)}</th>
               </tr>
             </tfoot>
