@@ -303,7 +303,8 @@ thead th { white-space: nowrap; }
 
   .tabbar {
     display: grid; grid-template-columns: repeat(5, 1fr);
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    /* Yon panel (z 20) va oynalar (z 30) pastki menyuning ustida turadi. */
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
     background: var(--surface); border-top: 1px solid var(--border);
     padding-bottom: env(safe-area-inset-bottom);
   }
