@@ -206,3 +206,16 @@ const SABABLAR = {
 export function bekorSababi(reason) {
   return reason == null ? "" : SABABLAR[reason] || `sabab ${reason}`;
 }
+
+const MANBA = {
+  instagram: "Instagram", telegram_ads: "TG Ads", organik: "organik",
+  taklif: "taklif", sayt: "sayt", eski: "eski",
+};
+
+/** «instagram:ig_oylik» → «Instagram · ig_oylik»; bo'sh → «—». */
+export function manbaNomi(source) {
+  if (!source) return "—";
+  const [head, rest] = source.split(":");
+  const name = MANBA[head] || head;
+  return rest ? `${name} · ${rest}` : name;
+}

@@ -373,6 +373,7 @@ def api_dashboard(session: dict = Depends(current_admin)):
         "log": [dict(r) for r in store.list_log(8, 0)],
         "usd_rate": settings.USD_RATE,
         "bot": store.bot_brief(),
+        "brief": store.today_brief(OWNER_IDS),
     }
 
 

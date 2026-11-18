@@ -14,7 +14,7 @@ import platform
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import settings
 
@@ -1155,6 +1155,115 @@ def overview(owner_ids: set[int]) -> dict:
         "conversion": round(100 * payers / total_nonowner, 1),
         # Aloqa: yetib boradi / botni bloklagan / rozilik yo'q / hech yozmagan.
         "churn": segment_counts(owner_ids),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Bosh sahifa: «bugun nima bo'ldi» — kecha va 7 kunlik o'rtacha bilan
+# solishtirib. Faqat sonlar (yozuvlar mazmuni panelda yo'q). Kun — Toshkent
+# bo'yicha: users.created_at UTC'da, consent/bot_blocked_at mahalliy vaqtda,
+# entry_counts va events.day esa allaqachon Toshkent kuni.
+# --------------------------------------------------------------------------- #
+
+BRIEF_SOURCES = ("instagram", "telegram_ads", "organik", "boshqa")
+
+
+def _source_group(source: str | None) -> str:
+    head = (source or "").split(":", 1)[0]
+    return head if head in BRIEF_SOURCES[:3] else "boshqa"
+
+
+def _utc_day(raw) -> date | None:
+    """users.created_at — UTC «YYYY-MM-DD HH:MM:SS» → Toshkent kuni."""
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(raw)[:19]).replace(tzinfo=timezone.utc)  # noqa: UP017 (Python 3.10)
+    except ValueError:
+        return None
+    return moment.astimezone(settings.TZ).date()
+
+
+def _local_day(raw) -> date | None:
+    moment = _parse(raw)
+    return moment.astimezone(settings.TZ).date() if moment else None
+
+
+def today_brief(owner_ids: set[int], days: int = 30) -> dict:
+    """Bugun / kecha / oldingi 7 kun o'rtachasi: yangi kelganlar, rozilik
+    bergan, birinchi kuni yozgan, faol (yozgan), bloklagan, to'lovlar; 7 kunlik
+    manbalar; 30 kunlik kunlik qator. Egalar sanalmaydi."""
+    t = today()
+    start = t - timedelta(days=max(days, 8) - 1)
+    owners = set(owner_ids or ())
+    with conn() as c:
+        users = [dict(r) for r in c.execute(
+            "SELECT user_id, created_at, consent_at, source, bot_blocked_at FROM users")
+            if r["user_id"] not in owners]
+        first_day = {r[0]: r[1] for r in c.execute(
+            "SELECT user_id, MIN(day) FROM entry_counts GROUP BY user_id")}
+        active: dict[str, set] = {}
+        for uid, d in c.execute("SELECT user_id, day FROM entry_counts WHERE day >= ?",
+                                (start.isoformat(),)):
+            if uid not in owners:
+                active.setdefault(d, set()).add(uid)
+        block_days: dict[str, int] = {}
+        with_events: set[int] = set()
+        if _has_table(c, "events"):
+            for uid, d in c.execute("SELECT user_id, day FROM events WHERE name = 'bot_bloklandi'"):
+                if uid in owners:
+                    continue
+                with_events.add(uid)
+                block_days[d] = block_days.get(d, 0) + 1
+        pays: dict[str, list] = {}
+        for uid, amount, created in c.execute(
+                "SELECT user_id, amount, created_at FROM payments WHERE voided_at IS NULL "
+                "AND method <> 'payme_test' AND created_at >= ?", (start.isoformat(),)):
+            if uid in owners:
+                continue
+            d = _local_day(created)
+            if d:
+                pays.setdefault(d.isoformat(), []).append(amount or 0)
+
+    per = {}
+    for i in range((t - start).days + 1):
+        d = (start + timedelta(days=i)).isoformat()
+        per[d] = {"new": 0, "consent": 0, "wrote": 0, "active": len(active.get(d, ())),
+                  "blocked": block_days.get(d, 0), "paid": len(pays.get(d, [])),
+                  "paid_sum": int(sum(pays.get(d, [])))}
+    src = {g: {"source": g, "new": 0, "wrote": 0, "blocked": 0} for g in BRIEF_SOURCES}
+    week_from = t - timedelta(days=6)
+    for u in users:
+        d = _utc_day(u["created_at"])
+        if d and d >= start:
+            row = per[d.isoformat()]
+            row["new"] += 1
+            row["consent"] += bool(u["consent_at"])
+            wrote = first_day.get(u["user_id"]) == d.isoformat()
+            row["wrote"] += wrote
+            if d >= week_from:
+                g = src[_source_group(u["source"])]
+                g["new"] += 1
+                g["wrote"] += wrote
+                g["blocked"] += bool(u["bot_blocked_at"]) or u["user_id"] in with_events
+        # Eski usul (bot xabar yuborganda 403): aniq hodisasi yo'qlar — aniqlangan kuni.
+        if u["bot_blocked_at"] and u["user_id"] not in with_events:
+            bd = _local_day(u["bot_blocked_at"])
+            if bd and bd >= start:
+                per[bd.isoformat()]["blocked"] += 1
+
+    keys = ("new", "consent", "wrote", "active", "blocked", "paid", "paid_sum")
+    prev = [per[(t - timedelta(days=i)).isoformat()] for i in range(1, 8)]
+    avg7 = {k: round(sum(r[k] for r in prev) / 7, 1) for k in keys}
+    labels = sorted(per)[-days:]
+    return {
+        "date": t.isoformat(),
+        "today": per[t.isoformat()],
+        "yesterday": per[(t - timedelta(days=1)).isoformat()],
+        "avg7": avg7,
+        "sources": [src[g] for g in BRIEF_SOURCES],
+        "series": {"labels": labels, **{k: [per[d][k] for d in labels]
+                                         for k in ("new", "active", "blocked", "wrote")}},
     }
 
 

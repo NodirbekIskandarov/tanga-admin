@@ -10,14 +10,44 @@ export function Loading({ label = "Yuklanmoqda…" }) {
   );
 }
 
+/**
+ * Xatoni oddiy tilda aytadi. Ilgari ekranga «SyntaxError: Unexpected token…»
+ * kabi texnik matn chiqardi — endi nima bo'lgani va nima qilish kerakligi,
+ * texnik kod esa kichik harf bilan pastda.
+ */
+export function errorText(error) {
+  const status = error?.originalStatus ?? error?.status;
+  const detail = error?.data?.detail;
+  if (typeof detail === "string" && detail) return { text: detail, code: status };
+  if (Array.isArray(detail)) return { text: "Kiritilgan ma'lumot noto'g'ri.", code: status };
+  if (error?.status === "FETCH_ERROR") {
+    return { text: "Server bilan aloqa yo'q. Internetni tekshirib, qayta urinib ko'ring.", code: null };
+  }
+  if (error?.status === "TIMEOUT_ERROR") {
+    return { text: "Server uzoq javob bermadi. Birozdan keyin qayta urinib ko'ring.", code: null };
+  }
+  if ([502, 503, 504].includes(status)) {
+    return { text: "Panel hozir javob bermayapti — ehtimol yangilanmoqda. Bir daqiqadan keyin qayta urinib ko'ring.", code: status };
+  }
+  if (typeof status === "number" && status >= 500) {
+    return { text: "Serverda xatolik yuz berdi. Qayta urinib ko'ring; takrorlansa, «Jurnal» bo'limini tekshiring.", code: status };
+  }
+  if (error?.status === "PARSING_ERROR") {
+    return { text: "Serverdan tushunarsiz javob keldi. Sahifani yangilab ko'ring.", code: status };
+  }
+  if (status === 404) return { text: "Topilmadi.", code: status };
+  if (status === 403) return { text: "Bu amalga ruxsat yo'q.", code: status };
+  return { text: "Kutilmagan xatolik. Qayta urinib ko'ring.", code: status || null };
+}
+
 export function ErrorBox({ error, onRetry }) {
-  const detail =
-    error?.data?.detail ||
-    error?.error ||
-    (error?.status ? `Xatolik ${error.status}` : "Noma'lum xatolik");
+  const { text, code } = errorText(error);
   return (
-    <div className="note bad">
-      <span className="grow">{detail}</span>
+    <div className="note bad" role="alert">
+      <span className="grow err-body">
+        {text}
+        {code ? <small>kod: {code}</small> : null}
+      </span>
       {onRetry && (
         <button className="btn sm" onClick={onRetry}>
           Qayta urinish

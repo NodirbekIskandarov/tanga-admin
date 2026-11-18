@@ -6,18 +6,34 @@ import {
   useVoidPaymentMutation, useUserActionMutation, useUserQuery,
 } from "../store/api";
 import { pushToast } from "../store/uiSlice";
+import Icon from "../components/Icon";
 import {
-  Av, Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag, useConfirm,
+  Av, Card, Empty, ErrorBox, Fact, Facts, Loading, Tag, useConfirm,
 } from "../components/common";
 import { Calendar, streakText } from "../components/Activity";
 import {
-  amalNomi, bekorSababi, day, dt, paymeHolat, som, tilNomi, usd, usulNomi, voqeaNomi,
+  amalNomi, bekorSababi, day, dt, manbaNomi, paymeHolat, som, tilNomi, usd, usulNomi, voqeaNomi,
 } from "../lib/format";
 
+const TABS = [
+  ["umumiy", "Umumiy"],
+  ["tolovlar", "To'lovlar"],
+  ["boshqarish", "Boshqarish"],
+];
+
+/**
+ * Foydalanuvchi kartasi: avval kim ekani va holati (sarlavha), keyin bo'limlar.
+ * Ilgari sahifa xavfli amallardan (ruxsat, obuna, bloklash) boshlanardi —
+ * endi ular «Boshqarish» bo'limida, sarlavhadagi tugmalar o'sha joyga olib boradi.
+ */
 export default function UserDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const [tab, setTab] = useState(() => {
+    const h = window.location.hash.slice(1);
+    return TABS.some(([k]) => k === h) ? h : "umumiy";
+  });
   const [msgOpen, setMsgOpen] = useState(false);
   const { data, isLoading, isFetching, error, refetch, fulfilledTimeStamp } =
     useUserQuery(id, { pollingInterval: 25000 });
@@ -44,6 +60,14 @@ export default function UserDetail() {
   const planPrice = plans.find((p) => p.code === chosenPlan)?.price ?? 0;
   const paid = amount === null ? planPrice : Math.max(0, Number(amount) || 0);
 
+  function openTab(key, anchor) {
+    setTab(key);
+    window.history.replaceState(null, "", `#${key}`);
+    if (anchor) {
+      setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    }
+  }
+
   async function voidPayment(p) {
     const q = `${som(p.amount)} so'mlik yozuv xato ekanini tasdiqlaysizmi? ` +
       "U daromaddan chiqariladi. Bu pulni qaytarish emas — faqat hisob tuzatish.";
@@ -67,386 +91,115 @@ export default function UserDetail() {
     }
   }
 
-  return (
-    <>
-      {confirmDialog}
+  const contact = u.bot_blocked
+    ? <Tag kind="bad">botni bloklagan · {day(u.bot_blocked_at)}</Tag>
+    : !u.consented
+      ? <Tag kind="warn">rozilik bermagan</Tag>
+      : <Tag kind="ok">aloqa ochiq</Tag>;
 
-      <div className="inline">
-        <Link className="btn" to="/foydalanuvchilar">
-          ← Ro'yxatga
-        </Link>
-        <span className="who">
-          <Av name={u.first_name || u.username || "?"} seed={u.user_id} size="md" />
-          <span>
-            <span className="nm" style={{ fontSize: 16, fontWeight: 500 }}>
-              {u.first_name || "Nomsiz"}
-            </span>
-            <span className="meta">
-              {u.username ? `@${u.username} · ` : ""}ID {u.user_id}
-            </span>
-          </span>
-        </span>
-        <span className="spacer" />
-        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
-      </div>
+  const payCount = (u.payments || []).length + (u.payme_orders || []).length;
 
-      <div className="kpis">
-        <Kpi
-          label="Holat"
-          value={<Tag kind={u.state}>{u.state}</Tag>}
-          sub={u.days_left != null ? `${u.days_left} kun qoldi` : "muddat yo'q"}
-        />
-        <Kpi label="Yozuvlari" value={u.tx_count} sub={`oxirgi faollik ${day(u.last_seen_at)}`} />
-        <Kpi label="AI xarajati" value={usd(u.cost_usd)} sub={`ro'yxatdan ${day(u.created_at)}`} />
-        <Kpi label="To'lagan" value={som(u.paid_total)} sub="so'm, jami" tone="brass" />
-      </div>
+  // ------------------------------------------------------------- bo'limlar --
 
-      <div className="grid3">
-        <div className="stack">
-          <Card title="Ruxsat berish (ixtiyoriy muddat va chegara)">
-            <div className="pad">
-              <div className="row" style={{ alignItems: "flex-end" }}>
-                <label className="fld" style={{ margin: 0, width: 120 }}>
-                  <span>Necha kun</span>
-                  <input
-                    type="number"
-                    className="mono"
-                    min={1}
-                    max={3650}
-                    value={grantDays}
-                    onChange={(e) => setGrantDays(Number(e.target.value))}
-                  />
-                </label>
-                <label className="fld grow" style={{ margin: 0 }}>
-                  <span>Qaysi chegarada</span>
-                  <select value={grantLevel} onChange={(e) => setGrantLevel(e.target.value)}>
-                    <option value="pro">PRO — to'liq chegaralar</option>
-                    <option value="sinov">Sinov — PRO, lekin jami chek soni cheklangan</option>
-                  </select>
-                </label>
-                {grantLevel === "pro" && (
-                  <label className="fld" style={{ margin: 0, width: 150 }}>
-                    <span>Tushgan summa, so'm</span>
-                    <input
-                      type="number"
-                      className="mono"
-                      min={0}
-                      value={grantAmount}
-                      onChange={(e) => setGrantAmount(Math.max(0, Number(e.target.value) || 0))}
-                    />
-                  </label>
-                )}
-                <button
-                  className="btn pri"
-                  disabled={acting || !(grantDays >= 1 && grantDays <= 3650)}
-                  onClick={() =>
-                    run(
-                      {
-                        amal: "ruxsat",
-                        kun: grantDays,
-                        daraja: grantLevel,
-                        ...(grantLevel === "pro" ? { summa: grantAmount } : {}),
-                      },
-                      {
-                        confirm:
-                          grantLevel === "pro"
-                            ? `${grantDays} kunlik PRO ruxsat beriladi. ` +
-                              (grantAmount > 0
-                                ? `${som(grantAmount)} so'm daromadga yoziladi.`
-                                : "Sovg'a: daromadga hech narsa yozilmaydi.") +
-                              " Foydalanuvchiga xabar boradi."
-                            : `${grantDays} kunlik sinov ruxsati beriladi (jami chek soni cheklangan). Foydalanuvchiga xabar boradi.`,
-                      }
-                    )
-                  }
-                >
-                  Ruxsat berish
-                </button>
-              </div>
-              <p className="hint">
-                Kun soni 1 dan 3650 gacha. Muddat mavjud muddat ustiga qo'shiladi.
-                «PRO» — to'liq imkoniyat (kunlik adolatli chegaralar bilan); «Sinov» —
-                yangi foydalanuvchining sinov chegarasi. Faol obunasi bor odamga
-                «Sinov» berilmaydi. Bepul darajaga tushirish — «Obunani bekor qilish».
-              </p>
-            </div>
-          </Card>
-
-          <Card title="Obunani boshqarish">
-            <div className="pad">
-              <div className="row" style={{ alignItems: "flex-end" }}>
-                <label className="fld grow" style={{ margin: 0 }}>
-                  <span>Tarif</span>
-                  <select value={chosenPlan} onChange={(e) => { setPlanCode(e.target.value); setAmount(null); }}>
-                    {plans.map((p) => (
-                      <option key={p.code} value={p.code}>
-                        {p.label} — {som(p.price)} so'm ({p.days} kun)
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="fld" style={{ margin: 0, width: 150 }}>
-                  <span>Tushgan summa, so'm</span>
-                  <input
-                    type="number"
-                    className="mono"
-                    min={0}
-                    value={amount === null ? planPrice : amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                  />
-                </label>
-                <button
-                  className="btn pri"
-                  disabled={acting}
-                  onClick={() =>
-                    run(
-                      { amal: "obuna", plan_code: chosenPlan, summa: paid },
-                      {
-                        confirm: paid > 0
-                          ? `${som(paid)} so'm to'lov tushdimi? Obuna darhol faollashadi, to'lov daromadga yoziladi va foydalanuvchiga xabar boradi.`
-                          : "Sovg'a: obuna beriladi, lekin daromadga hech narsa yozilmaydi. Foydalanuvchiga xabar boradi.",
-                      }
-                    )
-                  }
-                >
-                  Obuna berish
-                </button>
-              </div>
-              <p className="hint">
-                Muddat mavjud obuna ustiga qo'shiladi. Daromadga faqat yuqoridagi
-                summa yoziladi — sovg'a uchun 0 qo'ying.
-              </p>
-
-              <hr />
-
-              <div className="row" style={{ alignItems: "flex-end" }}>
-                <label className="fld" style={{ margin: 0, width: 130 }}>
-                  <span>Sinov, kun</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={365}
-                    value={trialDays}
-                    onChange={(e) => setTrialDays(Number(e.target.value))}
-                  />
-                </label>
-                <button
-                  className="btn"
-                  disabled={acting}
-                  onClick={() => run({ amal: "sinov", kun: trialDays })}
-                >
-                  Sinovni uzaytirish
-                </button>
-
-                <button
-                  className="btn"
-                  disabled={acting}
-                  onClick={() => run({ amal: "bekor" }, { confirm: "Obuna muddati bekor qilinsinmi? To'lov daromadda qoladi — sotib olingan obuna uchun pul qaytarilmaydi." })}
-                >
-                  Obunani bekor qilish
-                </button>
-                {u.blocked ? (
-                  <button
-                    className="btn ok"
-                    disabled={acting}
-                    onClick={() => run({ amal: "ochish" })}
-                  >
-                    Blokdan chiqarish
-                  </button>
-                ) : (
-                  <button
-                    className="btn dan"
-                    disabled={acting}
-                    onClick={() =>
-                      run(
-                        { amal: "bloklash" },
-                        { confirm: "Bloklansinmi? Foydalanuvchi botdan foydalana olmaydi.", danger: true }
-                      )
-                    }
-                  >
-                    Bloklash
-                  </button>
-                )}
-              </div>
-            </div>
-          </Card>
-
-          {/* Yozuvlarni ko'rish imkoniyati ATAYLAB yo'q. Ilgari bu yerda
-              «Ochib ko'rish» tugmasi bor edi va u summa, kategoriya,
-              izohni ko'rsatardi. Endi yozuvlar alohida shifrlangan
-              bazada, kaliti esa faqat botda — panel ularni so'rasa ham
-              ololmaydi. Faqat SON qoladi: u moliyaviy mazmun emas,
-              lekin obuna va limit haqida qaror qabul qilishga yetadi. */}
-          <Card title="Yozuvlari">
-            <div className="pad">
-              <p style={{ margin: "0 0 6px", fontSize: 15 }}>
-                <b>{u.tx_count}</b> ta yozuv
-              </p>
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                {u.tx_count === 0
-                  ? "Foydalanuvchi hali hech narsa yozmagan."
-                  : "🔒 Yozuvlarning mazmuni — summa, kategoriya va izoh — " +
-                    "alohida shifrlangan bazada saqlanadi va bu panelda " +
-                    "uning kaliti yo'q. Ularni faqat foydalanuvchining " +
-                    "o'zi botda ko'ra oladi."}
-              </p>
-            </div>
-          </Card>
-
-          {u.activity && (
-            <Card title="Faollik">
-              <div className="pad stack-sm">
-                <p style={{ margin: 0, fontSize: 14 }}>{streakText(u.activity)}</p>
-                <Facts>
-                  <Fact label="Joriy seriya">{u.activity.streak} kun</Fact>
-                  <Fact label="Eng uzun seriya">{u.activity.best} kun</Fact>
-                  <Fact label="Oxirgi 7 kun">{u.activity.d7} kun faol</Fact>
-                  <Fact label="Oxirgi 30 kun">{u.activity.d30} kun faol</Fact>
-                  <Fact label="Jami faol kunlar">{u.activity.active_total}</Fact>
-                  <Fact label="Birinchi yozuv">{day(u.activity.first_day)}</Fact>
-                </Facts>
-                <Calendar cells={u.activity.calendar} weeks={u.activity.weeks} />
-                <p className="hint" style={{ margin: 0 }}>
-                  Har katak — bir kun, rang — o'sha kuni kiritilgan yozuvlar soni.
-                  Yozuvlarning o'zi ko'rinmaydi, faqat soni.
-                </p>
-              </div>
-            </Card>
-          )}
-
-          <Card
-            title="Shaxsiy xabar yuborish"
-            action={
-              <button className="btn sm" onClick={() => setMsgOpen((v) => !v)}>
-                {msgOpen ? "Yopish" : "Ochish"}
-              </button>
-            }
-          >
-            <div className="pad" hidden={!msgOpen}>
-              <label className="fld">
-                <span>Matn (HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</span>
-                <textarea
-                  value={message}
-                  maxLength={3000}
-                  placeholder="Salom! ..."
-                  onChange={(e) => setMessage(e.target.value)}
-                />
-              </label>
-              <button
-                className="btn pri"
-                disabled={acting || !message.trim()}
-                onClick={() =>
-                  run({ amal: "xabar", matn: message }, { after: () => setMessage("") })
-                }
-              >
-                Telegramga yuborish
-              </button>
-            </div>
-          </Card>
-
-        </div>
-
-        <div className="stack">
-          <Card title="Profil">
-            <div className="pad">
+  const overview = (
+    <div className="grid3">
+      <div className="stack">
+        {u.activity && (
+          <Card title="Faollik">
+            <div className="pad stack-sm">
+              <p style={{ margin: 0, fontSize: 14 }}>{streakText(u.activity)}</p>
               <Facts>
-                <Fact label="Til" mono={false}>{tilNomi(u.lang)}</Fact>
-                <Fact label="Reklama manbasi" mono={false}>
-                  {u.source || "to'g'ridan-to'g'ri"}
-                </Fact>
-                <Fact label="Rozilik" mono={false}>
-                  {u.consented
-                    ? `${day(u.consent_at)} (${u.consent_version})`
-                    : <Tag kind="warn">bermagan</Tag>}
-                </Fact>
-                <Fact label="Bot bilan aloqa" mono={false}>
-                  {u.bot_blocked
-                    ? <Tag kind="bad">botni bloklagan · {day(u.bot_blocked_at)}</Tag>
-                    : "ochiq"}
-                </Fact>
-                {/* «Faollik» kartasi bilan bir manbadan (kunlik yozuvlar soni):
-                    ilgari bu yerda botning o'z hisobi (users.streak) turardi va
-                    Mini App'dan kiritilgan yozuvlarni sanamagani uchun ikkita
-                    karta ikki xil seriya ko'rsatardi. */}
-                <Fact label="Oxirgi yozuv">
-                  {day(u.activity?.last_day || u.last_entry_day)}
-                </Fact>
-                <Fact label="Seriya (kun)">
-                  {u.activity
-                    ? `${u.activity.streak} · eng uzun ${u.activity.best}`
-                    : `${u.streak ?? 0} · eng uzun ${u.best_streak ?? 0}`}
-                </Fact>
-                <Fact label="Kunlik eslatma" mono={false}>
-                  {u.reminder_off
-                    ? "o'chirilgan"
-                    : u.reminder_hour != null ? `${u.reminder_hour}:00` : "standart"}
-                </Fact>
-                <Fact label="Taklif qilgan" mono={false}>
-                  {u.referrer ? (
-                    <Link to={`/foydalanuvchilar/${u.referrer.user_id}`}>
-                      {u.referrer.first_name || u.referrer.username || u.referrer.user_id}
-                    </Link>
-                  ) : "—"}
-                </Fact>
-                <Fact label="Taklif qilganlari">
-                  {u.referrals} · bonus {u.bonus_days ?? 0} kun
-                </Fact>
+                <Fact label="Joriy seriya">{u.activity.streak} kun</Fact>
+                <Fact label="Eng uzun seriya">{u.activity.best} kun</Fact>
+                <Fact label="Oxirgi 7 kun">{u.activity.d7} kun faol</Fact>
+                <Fact label="Oxirgi 30 kun">{u.activity.d30} kun faol</Fact>
+                <Fact label="Jami faol kunlar">{u.activity.active_total}</Fact>
+                <Fact label="Birinchi yozuv">{day(u.activity.first_day)}</Fact>
               </Facts>
+              <Calendar cells={u.activity.calendar} weeks={u.activity.weeks} />
+              <p className="hint" style={{ margin: 0 }}>
+                Har katak — bir kun, rang — o'sha kuni kiritilgan yozuvlar soni.
+                Yozuvlarning o'zi ko'rinmaydi, faqat soni.
+              </p>
             </div>
           </Card>
+        )}
 
-          <Card title="Voqealar (bot)">
-            {(u.events || []).length === 0 ? (
-              <Empty>Hodisa yozilmagan.</Empty>
-            ) : (
-              u.events.map((e, i) => (
-                <div className="log-row" key={i}>
-                  <span className="t">{day(e.day)}</span>
-                  <span className="msg">
-                    {voqeaNomi(e.name)}{e.detail ? ` — ${e.detail}` : ""}
-                  </span>
-                </div>
-              ))
-            )}
-          </Card>
+        {/* Yozuvlarni ko'rish imkoniyati ATAYLAB yo'q: ular alohida shifrlangan
+            bazada, kaliti esa faqat botda. Faqat SON qoladi. */}
+        <Card title="Yozuvlari">
+          <div className="pad">
+            <p style={{ margin: "0 0 6px", fontSize: 15 }}>
+              <b>{u.tx_count}</b> ta yozuv
+            </p>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {u.tx_count === 0
+                ? "Foydalanuvchi hali hech narsa yozmagan."
+                : "🔒 Yozuvlarning mazmuni — summa, kategoriya va izoh — " +
+                  "alohida shifrlangan bazada saqlanadi va bu panelda " +
+                  "uning kaliti yo'q. Ularni faqat foydalanuvchining " +
+                  "o'zi botda ko'ra oladi."}
+            </p>
+          </div>
+        </Card>
+      </div>
 
-          <Card title="AI sarfi">
+      <div className="stack">
+        <Card title="Profil">
+          <div className="pad">
+            <Facts>
+              <Fact label="Til" mono={false}>{tilNomi(u.lang)}</Fact>
+              <Fact label="Reklama manbasi" mono={false}>{u.source || "to'g'ridan-to'g'ri"}</Fact>
+              <Fact label="Rozilik" mono={false}>
+                {u.consented
+                  ? `${day(u.consent_at)}${u.consent_version ? ` (${u.consent_version})` : ""}`
+                  : <Tag kind="warn">bermagan</Tag>}
+              </Fact>
+              <Fact label="Bot bilan aloqa" mono={false}>
+                {u.bot_blocked ? <Tag kind="bad">botni bloklagan · {day(u.bot_blocked_at)}</Tag> : "ochiq"}
+              </Fact>
+              <Fact label="Kunlik eslatma" mono={false}>
+                {u.reminder_off ? "o'chirilgan" : u.reminder_hour != null ? `${u.reminder_hour}:00` : "standart"}
+              </Fact>
+              <Fact label="Taklif qilgan" mono={false}>
+                {u.referrer ? (
+                  <Link to={`/foydalanuvchilar/${u.referrer.user_id}`}>
+                    {u.referrer.first_name || u.referrer.username || u.referrer.user_id}
+                  </Link>
+                ) : "—"}
+              </Fact>
+              <Fact label="Taklif qilganlari">{u.referrals} · bonus {u.bonus_days ?? 0} kun</Fact>
+            </Facts>
+          </div>
+        </Card>
+
+        <Card title="Voqealar (bot)">
+          {(u.events || []).length === 0 ? (
+            <Empty>Hodisa yozilmagan.</Empty>
+          ) : (
+            u.events.map((e, i) => (
+              <div className="log-row" key={i}>
+                <span className="t">{day(e.day)}</span>
+                <span className="msg">{voqeaNomi(e.name)}{e.detail ? ` — ${e.detail}` : ""}</span>
+              </div>
+            ))
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+
+  const money = (
+    <div className="grid3">
+      <div className="stack">
+        <Card title="To'lovlar tarixi">
+          {u.payments.length === 0 ? (
+            <p className="pad muted" style={{ margin: 0 }}>Hali to'lov qilmagan.</p>
+          ) : (
             <div className="tbl-wrap">
               <table>
                 <thead>
-                  <tr>
-                    <th>Amal</th>
-                    <th className="num">Soni</th>
-                    <th className="num">Narx</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {u.usage.length === 0 && <Empty colSpan={3}>Sarf yo'q.</Empty>}
-                  {u.usage.map((x) => (
-                    <tr key={x.operation}>
-                      <td>{amalNomi(x.operation)}</td>
-                      <td className="num">{x.calls}</td>
-                      <td className="num">{usd(x.cost)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          <Card title="To'lovlar tarixi">
-            {u.payments.length === 0 ? (
-              <p className="pad muted" style={{ margin: 0 }}>Hali to'lov qilmagan.</p>
-            ) : (
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Sana</th>
-                    <th>Tarif</th>
-                    <th>Usul</th>
-                    <th className="num">Summa</th>
-                  </tr>
+                  <tr><th>Sana</th><th>Tarif</th><th>Usul</th><th className="num">Summa</th></tr>
                 </thead>
                 <tbody>
                   {u.payments.map((p) => (
@@ -462,7 +215,7 @@ export default function UserDetail() {
                         ) : (
                           <>
                             {som(p.amount)}{" "}
-                            <button className="btn" disabled={voiding}
+                            <button className="btn sm" disabled={voiding}
                                     title="Bu to'lov aslida tushmagan yoki takroriy yozuv — daromaddan chiqarish (pul qaytarilmaydi)"
                                     onClick={() => voidPayment(p)}>
                               Xato yozuv
@@ -475,23 +228,17 @@ export default function UserDetail() {
                 </tbody>
               </table>
             </div>
-            )}
-          </Card>
+          )}
+        </Card>
 
-          <Card title="Payme buyurtmalari">
-            {(u.payme_orders || []).length === 0 ? (
-              <p className="pad muted" style={{ margin: 0 }}>Payme orqali to'lov havolasi olmagan.</p>
-            ) : (
+        <Card title="Payme buyurtmalari">
+          {(u.payme_orders || []).length === 0 ? (
+            <p className="pad muted" style={{ margin: 0 }}>Payme orqali to'lov havolasi olmagan.</p>
+          ) : (
             <div className="tbl-wrap">
               <table>
                 <thead>
-                  <tr>
-                    <th>Yaratildi</th>
-                    <th>Buyurtma</th>
-                    <th>Tarif</th>
-                    <th className="num">Summa</th>
-                    <th>Holat</th>
-                  </tr>
+                  <tr><th>Yaratildi</th><th>Buyurtma</th><th>Tarif</th><th className="num">Summa</th><th>Holat</th></tr>
                 </thead>
                 <tbody>
                   {u.payme_orders.map((o) => {
@@ -515,64 +262,299 @@ export default function UserDetail() {
                 </tbody>
               </table>
             </div>
-            )}
-          </Card>
+          )}
+        </Card>
 
-          {u.requests.length > 0 && (
+        {u.requests.length > 0 && (
           <Card title="Qo'lda to'lov so'rovlari (arxiv)">
-            {(
             <div className="tbl-wrap">
               <table>
-                <thead>
-                  <tr>
-                    <th>Sana</th>
-                    <th>Tarif</th>
-                    <th>Holat</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Sana</th><th>Tarif</th><th>Holat</th></tr></thead>
                 <tbody>
                   {u.requests.map((r) => (
                     <tr key={r.id}>
                       <td className="mono nowrap">{day(r.created_at)}</td>
                       <td>{r.plan_code}</td>
-                      <td>
-                        <Tag kind={r.status.replace(" ", "")}>{r.status}</Tag>
-                      </td>
+                      <td><Tag kind={r.status.replace(" ", "")}>{r.status}</Tag></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            )}
           </Card>
-          )}
+        )}
+      </div>
 
-          <Card title="Xavfli hudud" className="danger-zone">
-            <div className="pad">
-              <p className="hint" style={{ marginTop: 0 }}>
-                Foydalanuvchining barcha yozuvlari, sarf tarixi va hisobi
-                butunlay o'chiriladi. Qaytarib bo'lmaydi.
-              </p>
+      <div className="stack">
+        <Card title="AI sarfi">
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr><th>Amal</th><th className="num">Soni</th><th className="num">Narx</th></tr></thead>
+              <tbody>
+                {u.usage.length === 0 && <Empty colSpan={3}>Sarf yo'q.</Empty>}
+                {u.usage.map((x) => (
+                  <tr key={x.operation}>
+                    <td>{amalNomi(x.operation)}</td>
+                    <td className="num">{x.calls}</td>
+                    <td className="num">{usd(x.cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+
+  const manage = (
+    <div className="grid3">
+      <div className="stack">
+        <Card title="Obuna berish" className="anchor">
+          <div className="pad" id="obuna">
+            <div className="row" style={{ alignItems: "flex-end" }}>
+              <label className="fld grow" style={{ margin: 0 }}>
+                <span>Tarif</span>
+                <select value={chosenPlan} onChange={(e) => { setPlanCode(e.target.value); setAmount(null); }}>
+                  {plans.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.label} — {som(p.price)} so'm ({p.days} kun)
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fld" style={{ margin: 0, width: 150 }}>
+                <span>Tushgan summa, so'm</span>
+                <input type="number" className="mono" min={0}
+                       value={amount === null ? planPrice : amount}
+                       onChange={(e) => setAmount(e.target.value)} />
+              </label>
               <button
-                className="btn dan"
+                className="btn pri"
                 disabled={acting}
                 onClick={() =>
                   run(
-                    { amal: "ochirish" },
+                    { amal: "obuna", plan_code: chosenPlan, summa: paid },
                     {
-                      confirm: `${u.tx_count} ta yozuv va butun hisob o'chiriladi. Davom etilsinmi?`,
-                      danger: true,
-                      after: () => navigate("/foydalanuvchilar"),
+                      confirm: paid > 0
+                        ? `${som(paid)} so'm to'lov tushdimi? Obuna darhol faollashadi, to'lov daromadga yoziladi va foydalanuvchiga xabar boradi.`
+                        : "Sovg'a: obuna beriladi, lekin daromadga hech narsa yozilmaydi. Foydalanuvchiga xabar boradi.",
                     }
                   )
                 }
               >
-                Hamma ma'lumotni o'chirish
+                Obuna berish
               </button>
             </div>
-          </Card>
-        </div>
+            <p className="hint">
+              Muddat mavjud obuna ustiga qo'shiladi. Daromadga faqat yuqoridagi
+              summa yoziladi — sovg'a uchun 0 qo'ying.
+            </p>
+          </div>
+        </Card>
+
+        <Card title="Sinov va holat">
+          <div className="pad" id="sinov">
+            <div className="row" style={{ alignItems: "flex-end" }}>
+              <label className="fld" style={{ margin: 0, width: 130 }}>
+                <span>Sinov, kun</span>
+                <input type="number" min={1} max={365} value={trialDays}
+                       onChange={(e) => setTrialDays(Number(e.target.value))} />
+              </label>
+              <button className="btn" disabled={acting} onClick={() => run({ amal: "sinov", kun: trialDays })}>
+                Sinovni uzaytirish
+              </button>
+              <button
+                className="btn"
+                disabled={acting}
+                onClick={() => run({ amal: "bekor" }, { confirm: "Obuna muddati bekor qilinsinmi? To'lov daromadda qoladi — sotib olingan obuna uchun pul qaytarilmaydi." })}
+              >
+                Obunani bekor qilish
+              </button>
+              {u.blocked ? (
+                <button className="btn ok" disabled={acting} onClick={() => run({ amal: "ochish" })}>
+                  Blokdan chiqarish
+                </button>
+              ) : (
+                <button
+                  className="btn dan"
+                  disabled={acting}
+                  onClick={() => run({ amal: "bloklash" }, { confirm: "Bloklansinmi? Foydalanuvchi botdan foydalana olmaydi.", danger: true })}
+                >
+                  Bloklash
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Ruxsat berish (ixtiyoriy muddat va chegara)">
+          <div className="pad">
+            <div className="row" style={{ alignItems: "flex-end" }}>
+              <label className="fld" style={{ margin: 0, width: 120 }}>
+                <span>Necha kun</span>
+                <input type="number" className="mono" min={1} max={3650} value={grantDays}
+                       onChange={(e) => setGrantDays(Number(e.target.value))} />
+              </label>
+              <label className="fld grow" style={{ margin: 0 }}>
+                <span>Qaysi chegarada</span>
+                <select value={grantLevel} onChange={(e) => setGrantLevel(e.target.value)}>
+                  <option value="pro">PRO — to'liq chegaralar</option>
+                  <option value="sinov">Sinov — PRO, lekin jami chek soni cheklangan</option>
+                </select>
+              </label>
+              {grantLevel === "pro" && (
+                <label className="fld" style={{ margin: 0, width: 150 }}>
+                  <span>Tushgan summa, so'm</span>
+                  <input type="number" className="mono" min={0} value={grantAmount}
+                         onChange={(e) => setGrantAmount(Math.max(0, Number(e.target.value) || 0))} />
+                </label>
+              )}
+              <button
+                className="btn pri"
+                disabled={acting || !(grantDays >= 1 && grantDays <= 3650)}
+                onClick={() =>
+                  run(
+                    {
+                      amal: "ruxsat",
+                      kun: grantDays,
+                      daraja: grantLevel,
+                      ...(grantLevel === "pro" ? { summa: grantAmount } : {}),
+                    },
+                    {
+                      confirm:
+                        grantLevel === "pro"
+                          ? `${grantDays} kunlik PRO ruxsat beriladi. ` +
+                            (grantAmount > 0
+                              ? `${som(grantAmount)} so'm daromadga yoziladi.`
+                              : "Sovg'a: daromadga hech narsa yozilmaydi.") +
+                            " Foydalanuvchiga xabar boradi."
+                          : `${grantDays} kunlik sinov ruxsati beriladi (jami chek soni cheklangan). Foydalanuvchiga xabar boradi.`,
+                    }
+                  )
+                }
+              >
+                Ruxsat berish
+              </button>
+            </div>
+            <p className="hint">
+              Kun soni 1 dan 3650 gacha. Muddat mavjud muddat ustiga qo'shiladi.
+              «PRO» — to'liq imkoniyat (kunlik adolatli chegaralar bilan); «Sinov» —
+              yangi foydalanuvchining sinov chegarasi. Faol obunasi bor odamga
+              «Sinov» berilmaydi. Bepul darajaga tushirish — «Obunani bekor qilish».
+            </p>
+          </div>
+        </Card>
       </div>
+
+      <div className="stack">
+        <Card
+          title="Shaxsiy xabar yuborish"
+          action={
+            <button className="btn sm" onClick={() => setMsgOpen((v) => !v)}>
+              {msgOpen ? "Yopish" : "Ochish"}
+            </button>
+          }
+        >
+          <div className="pad" id="xabar" hidden={!msgOpen}>
+            <label className="fld">
+              <span>Matn (HTML: &lt;b&gt; &lt;i&gt; &lt;code&gt;)</span>
+              <textarea value={message} maxLength={3000} placeholder="Salom! ..."
+                        onChange={(e) => setMessage(e.target.value)} />
+            </label>
+            <button
+              className="btn pri"
+              disabled={acting || !message.trim()}
+              onClick={() => run({ amal: "xabar", matn: message }, { after: () => setMessage("") })}
+            >
+              Telegramga yuborish
+            </button>
+          </div>
+        </Card>
+
+        <Card title="Xavfli hudud" className="danger-zone">
+          <div className="pad">
+            <p className="hint" style={{ marginTop: 0 }}>
+              Foydalanuvchining barcha yozuvlari, sarf tarixi va hisobi
+              butunlay o'chiriladi. Qaytarib bo'lmaydi.
+            </p>
+            <button
+              className="btn dan"
+              disabled={acting}
+              onClick={() =>
+                run(
+                  { amal: "ochirish" },
+                  {
+                    confirm: `${u.tx_count} ta yozuv va butun hisob o'chiriladi. Davom etilsinmi?`,
+                    danger: true,
+                    after: () => navigate("/foydalanuvchilar"),
+                  }
+                )
+              }
+            >
+              Hamma ma'lumotni o'chirish
+            </button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {confirmDialog}
+
+      <section className="uhead">
+        <div className="uhead-top">
+          <Link className="btn ghost sm" to="/foydalanuvchilar">
+            <Icon name="back" size={16} /> Ro'yxat
+          </Link>
+          <span className="spacer" />
+          <Fresh at={fulfilledTimeStamp} busy={isFetching} />
+        </div>
+        <div className="uhead-main">
+          <Av name={u.first_name || u.username || "?"} seed={u.user_id} size="lg" />
+          <div className="uhead-id">
+            <h2>{u.first_name || "Nomsiz"}</h2>
+            <div className="meta">{u.username ? `@${u.username} · ` : ""}ID {u.user_id}</div>
+            <div className="tags">
+              <Tag kind={u.state}>{u.state}</Tag>
+              {contact}
+              <span className="muted small">{manbaNomi(u.source)} · {tilNomi(u.lang)}</span>
+            </div>
+          </div>
+          <div className="uhead-actions">
+            <button className="btn pri" onClick={() => openTab("boshqarish", "obuna")}>Obuna berish</button>
+            <button className="btn" onClick={() => openTab("boshqarish", "sinov")}>Sinovni uzaytirish</button>
+            <button className="btn" onClick={() => { setMsgOpen(true); openTab("boshqarish", "xabar"); }}>
+              Xabar yuborish
+            </button>
+          </div>
+        </div>
+        <dl className="uhead-facts">
+          <div><dt>Muddat</dt><dd>{u.days_left != null ? `${u.days_left} kun qoldi` : "muddat yo'q"}</dd></div>
+          <div><dt>Yozuvlar</dt><dd className="mono">{u.tx_count}</dd></div>
+          <div><dt>Seriya</dt><dd className="mono">{u.activity ? `${u.activity.streak} kun` : "—"}</dd></div>
+          <div><dt>Oxirgi yozuv</dt><dd className="mono">{day(u.activity?.last_day || u.last_entry_day)}</dd></div>
+          <div><dt>Kelgan</dt><dd className="mono">{day(u.created_at)}</dd></div>
+          <div><dt>To'lagan</dt><dd className="mono brass">{som(u.paid_total)} so'm</dd></div>
+          <div><dt>AI xarajati</dt><dd className="mono">{usd(u.cost_usd)}</dd></div>
+        </dl>
+      </section>
+
+      <div className="tabs" role="tablist">
+        {TABS.map(([key, label]) => (
+          <button key={key} role="tab" aria-selected={tab === key}
+                  className={tab === key ? "on" : ""} onClick={() => openTab(key)}>
+            {label}
+            {key === "tolovlar" && payCount > 0 && <span className="chip-n">{payCount}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "umumiy" && overview}
+      {tab === "tolovlar" && money}
+      {tab === "boshqarish" && manage}
     </>
   );
 }
