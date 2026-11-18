@@ -397,3 +397,21 @@ details.howto .hint { margin-top: 6px; }
   .funnel td:first-child { min-width: 140px; }
   .bar-row > :first-child { white-space: nowrap; }
 }
+
+/* --------------------------------------------------------------------- *
+ * 3-bosqich: Tizim, Jurnal, Sozlamalar, Ommaviy xabar, Parol
+ * --------------------------------------------------------------------- */
+
+.narrow-input input { max-width: 220px; }
+
+/* Ikki bo'lakli jurnal qatori (vaqt + matn): uch ustunli to'r ularni ustma-ust qo'yardi. */
+.log-row.two {
+  grid-template-columns: 132px minmax(0, 1fr); height: auto; min-height: 40px;
+  padding: 8px 0; align-items: start;
+}
+.pad .log-row.two { padding: 8px 0; }
+.card > .log-row.two { padding: 8px 16px; }
+.log-row.two > :first-child { font-family: var(--mono); font-size: 12.5px; color: var(--text-3); }
+@media (max-width: 720px) {
+  .log-row.two { grid-template-columns: 1fr; gap: 2px; }
+}

@@ -181,11 +181,24 @@ export default function Broadcast() {
                 <input
                   ref={fileInput}
                   type="file"
+                  hidden
                   accept={videoInfo.types.join(",")}
                   onChange={onPick}
                   disabled={uploading || running}
-                  style={{ maxWidth: 320 }}
+                  tabIndex={-1}
+                  aria-hidden="true"
                 />
+                <button
+                  type="button"
+                  className="btn sm"
+                  disabled={uploading || running}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {video ? "Boshqa video" : "Video tanlash"}
+                </button>
+                {!video && !uploading && (
+                  <span className="muted" style={{ fontSize: 13 }}>ixtiyoriy</span>
+                )}
                 {uploading && <span className="muted" style={{ fontSize: 13 }}>Yuklanmoqda…</span>}
                 {video && !uploading && (
                   <>

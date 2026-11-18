@@ -5,7 +5,7 @@ import { useSystemQuery, useUpdateCategoryMutation } from "../store/api";
 import { pushToast } from "../store/uiSlice";
 import Fresh from "../components/Fresh";
 import {
-  Bars, Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag,
+  Card, Empty, ErrorBox, Fact, Facts, Kpi, Loading, Tag,
 } from "../components/common";
 import { dt, voqeaNomi } from "../lib/format";
 
@@ -150,13 +150,19 @@ export default function System() {
 
         <Card title="Xatolar">
           <div className="pad stack-sm">
-            <Bars
-              max={maxErr}
-              rows={errors.days.map((d) => ({
-                label: d.day.slice(5), value: d.n,
-                color: d.n ? "var(--danger)" : "var(--border-strong)", text: d.n,
-              }))}
-            />
+            {/* 14 kun — ixcham ustunlar (ilgari 14 qatorlik ro'yxat edi). */}
+            <div className="mini-bars" aria-label="Kunlik xatolar">
+              {errors.days.map((d) => (
+                <div key={d.day} className="mini-bar" title={`${d.day}: ${d.n}`}>
+                  <span className="n">{d.n || ""}</span>
+                  <span className="b" style={{
+                    height: `${(100 * d.n) / (maxErr || 1)}%`,
+                    background: d.n ? "var(--danger)" : "var(--border)",
+                  }} />
+                  <span className="d">{d.day.slice(8)}.{d.day.slice(5, 7)}</span>
+                </div>
+              ))}
+            </div>
             {errors.by_kind?.length > 0 && (
               <div className="stack-sm">
                 <div className="lbl">7 kunda eng ko'p</div>
@@ -175,7 +181,7 @@ export default function System() {
             ) : (
               <div className="stack-sm">
                 {errors.recent.slice(0, 20).map((e) => (
-                  <div key={e.id} className="log-row">
+                  <div key={e.id} className="log-row two">
                     <span className="muted nowrap">{dt(e.created_at)}</span>
                     <span>
                       <span className="mono">{e.kind}</span>
@@ -215,7 +221,7 @@ export default function System() {
               <div className="pad stack-sm">
                 <div className="lbl">Oxirgi voqealar</div>
                 {events.recent.slice(0, 30).map((e) => (
-                  <div key={e.id} className="log-row">
+                  <div key={e.id} className="log-row two">
                     <span className="muted nowrap">{dt(e.created_at)}</span>
                     <span>
                       <Who row={e} /> — {voqeaNomi(e.name)}

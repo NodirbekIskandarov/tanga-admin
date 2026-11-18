@@ -149,7 +149,7 @@ export default function UserDetail() {
           <div className="pad">
             <Facts>
               <Fact label="Til" mono={false}>{tilNomi(u.lang)}</Fact>
-              <Fact label="Reklama manbasi" mono={false}>{u.source || "to'g'ridan-to'g'ri"}</Fact>
+              <Fact label="Reklama manbasi" mono={false}>{manbaNomi(u.source)}</Fact>
               <Fact label="Rozilik" mono={false}>
                 {u.consented
                   ? `${day(u.consent_at)}${u.consent_version ? ` (${u.consent_version})` : ""}`
@@ -178,7 +178,7 @@ export default function UserDetail() {
             <Empty>Hodisa yozilmagan.</Empty>
           ) : (
             u.events.map((e, i) => (
-              <div className="log-row" key={i}>
+              <div className="log-row two" key={i}>
                 <span className="t">{day(e.day)}</span>
                 <span className="msg">{voqeaNomi(e.name)}{e.detail ? ` — ${e.detail}` : ""}</span>
               </div>

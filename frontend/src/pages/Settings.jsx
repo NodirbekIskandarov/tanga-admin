@@ -102,7 +102,7 @@ export default function Settings() {
             holati: <a href="/tolovlar">To'lovlar</a> va <a href="/tizim">Tizim</a>.
           </p>
 
-          <label className="fld" style={{ margin: 0, width: 160 }}>
+          <label className="fld narrow-input" style={{ margin: 0 }}>
             <span>Sinov muddati, kun</span>
             <input
               type="number"
@@ -114,7 +114,7 @@ export default function Settings() {
             />
           </label>
 
-          <label className="fld" style={{ margin: 0, width: 200 }}>
+          <label className="fld narrow-input" style={{ margin: 0 }}>
             <span>AI oylik limiti, $</span>
             <input
               type="number"
@@ -133,7 +133,7 @@ export default function Settings() {
             </span>
           </label>
 
-          <label className="fld" style={{ margin: 0, width: 200 }}>
+          <label className="fld narrow-input" style={{ margin: 0 }}>
             <span>Kishi boshiga limit, $ / oy</span>
             <input
               type="number"
