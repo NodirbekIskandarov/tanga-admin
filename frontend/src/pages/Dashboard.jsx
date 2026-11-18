@@ -113,7 +113,7 @@ export default function Dashboard() {
                 avg={a.wrote} sub={`yangilarning ${share(t.wrote, t.new)}`} />
           <Tile label="Faol (yozuv qilgan)" value={t.active} today={t.active} yesterday={y.active} avg={a.active} />
           <Tile label="Bloklagan" value={t.blocked} today={t.blocked} yesterday={y.blocked}
-                avg={a.blocked} invert />
+                avg={a.blocked} sub="yangi va eski foydalanuvchilar" invert />
           <Tile label="To'lovlar" value={som(t.paid_sum)} today={t.paid_sum} yesterday={y.paid_sum}
                 avg={a.paid_sum} sub={`${t.paid} ta to'lov, so'm`} format={som} />
         </div>
@@ -144,6 +144,7 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+          <p className="hint pad" style={{ margin: 0 }}>Faqat shu 7 kunda kelganlar: «Bloklagan» — ulardan nechtasi botni bloklagani.</p>
         </Card>
 
         <Card title="Oxirgi 30 kun">
