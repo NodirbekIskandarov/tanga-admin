@@ -105,6 +105,15 @@ function Funnel({ all, d30 }) {
   );
 }
 
+/**
+ * trial→PRO: sinovi tugaganlar (yoki sinovda to'laganlar) orasida to'laganlar.
+ * Hech kimning sinovi tugamagan bo'lsa — «—». Eski bot ma'lumotida maydon yo'q.
+ */
+function trialPro(r) {
+  if (!r.trial_end) return "—";
+  return `${r.trial_pro} / ${r.trial_end} · ${pct(r.trial_pro, r.trial_end)}`;
+}
+
 /** «2026-10-27» dan boshlab i-kun: «27.10». */
 function dayLabel(from, i) {
   const d = new Date(`${from}T00:00:00Z`);
@@ -151,12 +160,13 @@ function Sources({ data, period }) {
               <th className="num">3 kun</th>
               <th className="num">7 kun</th>
               <th className="num">PRO</th>
+              <th className="num" title="Sinovi tugaganlarning (yoki sinovda to'laganlarning) necha foizi to'lagan">trial→PRO</th>
               <th className="num">Daromad</th>
             </tr>
           </thead>
           <tbody>
             {rep.rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
+              <tr><td colSpan={8} className="muted">Bu davrda yangi foydalanuvchi yo'q.</td></tr>
             )}
             {rep.rows.map((r) => (
               <Fragment key={r.source}>
@@ -174,11 +184,12 @@ function Sources({ data, period }) {
                   <td className="num">{r.d3 ?? 0} <span className="muted">· {pct(r.d3 ?? 0, r.start)}</span></td>
                   <td className="num">{r.d7} <span className="muted">· {pct(r.d7, r.start)}</span></td>
                   <td className="num">{r.pro} <span className="muted">· {pct(r.pro, r.start)}</span></td>
+                  <td className="num">{trialPro(r)}</td>
                   <td className="num">{som(r.revenue)}</td>
                 </tr>
                 {open === r.source && (
                   <tr className="detail">
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <DailyStarts from={data.daily_from} values={daily(r.source)} />
                     </td>
                   </tr>
@@ -195,6 +206,7 @@ function Sources({ data, period }) {
                 <th className="num">{t.d3 ?? 0} · {pct(t.d3 ?? 0, t.start)}</th>
                 <th className="num">{t.d7} · {pct(t.d7, t.start)}</th>
                 <th className="num">{t.pro} · {pct(t.pro, t.start)}</th>
+                <th className="num">{trialPro(t)}</th>
                 <th className="num">{som(t.revenue)}</th>
               </tr>
             </tfoot>
@@ -204,7 +216,8 @@ function Sources({ data, period }) {
       <div className="pad" style={{ paddingTop: 8 }}>
         <p className="hint" style={{ margin: 0 }}>
           Qatorni bosing — oxirgi 14 kunda kuniga nechta start. «Faol» — kamida bitta yozuv;
-          «3 kun», «7 kun» — shundan keyin ham yozganlar; PRO va daromad — haqiqiy to'lovlar.
+          «3 kun», «7 kun» — shundan keyin ham yozganlar; PRO va daromad — haqiqiy to'lovlar;
+          «trial→PRO» — sinovi tugaganlarning necha foizi to'lagan.
           Hisoblangan: {data.computed_at?.slice(0, 16).replace("T", " ")}.
         </p>
         <details className="howto">
