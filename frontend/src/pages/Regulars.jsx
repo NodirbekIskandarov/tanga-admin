@@ -3,10 +3,11 @@ import { useDispatch, useSelector } from "react-redux";
 import { useRegularsQuery } from "../store/api";
 import { setRegularFilters } from "../store/uiSlice";
 import Fresh from "../components/Fresh";
+import Icon from "../components/Icon";
 import UserDrawer from "../components/UserDrawer";
 import { Strip, lastSeen } from "../components/Activity";
 import {
-  Card, Empty, ErrorBox, Kpi, Loading, Pager, Seg, Tag, Who,
+  Av, Card, Empty, ErrorBox, Kpi, Loading, Pager, Tag, Who,
 } from "../components/common";
 import { kunOy } from "../lib/format";
 
@@ -104,6 +105,7 @@ export default function Regulars() {
   const counts = data.counts;
   const seg = data.segment;
 
+
   return (
     <>
       <UserDrawer userId={open} onClose={() => setOpen(null)} />
@@ -128,7 +130,7 @@ export default function Regulars() {
           sub={`kuniga o'rtacha ${String(sm.dau7).replace(".", ",")} / ${sm.mau} kishi`}
         />
       </div>
-      <p className="hint" style={{ margin: "-8px 0 0" }}>
+      <p className="hint" style={{ margin: "-12px 0 0" }}>
         Yopishqoqlik — oy davomida yozgan odamlarning o'rtacha har kuni qanchasi yozadi
         (kechagacha 7 kunlik o'rtacha ÷ 30 kunda kamida bir marta yozganlar). Bugun
         hali tugamagani uchun hisobga kirmaydi.
@@ -140,39 +142,44 @@ export default function Regulars() {
         </div>
       </Card>
 
-      <div className="seg-scroll">
-        <Seg
-          options={ORDER.map((k) => [k, `${SHORT[k]} · ${counts[k] ?? 0}`])}
-          value={seg}
-          onChange={(v) => set({ segment: v })}
-        />
-      </div>
-      <p className="hint" style={{ margin: "-8px 0 0" }}>{explain(seg, data.rules)}</p>
-
-      <div className="row">
-        <input
-          type="text"
-          className="search"
-          placeholder="Ism, username yoki ID"
-          value={filters.q}
-          maxLength={64}
-          onChange={(e) => set({ q: e.target.value })}
-        />
-        <select value={filters.tartib} onChange={(e) => set({ tartib: e.target.value })}>
-          {SORTS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-        </select>
-        <span className="spacer" />
-        <Fresh at={fulfilledTimeStamp} busy={isFetching} />
-        <a className="btn" href={`/api/export/regulars.csv?segment=${encodeURIComponent(seg)}`}>
-          CSV yuklab olish
-        </a>
-      </div>
+      <section className="finder">
+        <div className="chips" role="tablist" aria-label="Segmentlar">
+          {ORDER.map((k) => (
+            <button key={k} role="tab" aria-selected={seg === k}
+                    className={`chip ${seg === k ? "on" : ""}`} onClick={() => set({ segment: k })}>
+              {SHORT[k]}
+              <span className="chip-n">{counts[k] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+        <p className="hint" style={{ margin: 0 }}>{explain(seg, data.rules)}</p>
+        <div className="toolbar">
+          <label className="field-search grow">
+            <Icon name="search" size={16} />
+            <input
+              type="search"
+              placeholder="Ism, @username yoki ID"
+              value={filters.q}
+              maxLength={64}
+              onChange={(e) => set({ q: e.target.value })}
+            />
+          </label>
+          <select value={filters.tartib} onChange={(e) => set({ tartib: e.target.value })} aria-label="Tartib">
+            {SORTS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          </select>
+          <a className="btn" href={`/api/export/regulars.csv?segment=${encodeURIComponent(seg)}`}>CSV</a>
+        </div>
+        <div className="result-line">
+          <span><b className="mono">{data.total}</b> kishi</span>
+          <Fresh at={fulfilledTimeStamp} busy={isFetching} />
+        </div>
+      </section>
 
       {error && <ErrorBox error={error} onRetry={refetch} />}
 
-      <Card>
-        <div className="tbl-wrap">
-          <table>
+      <Card className="flush">
+        <div className="tbl-wrap only-wide">
+          <table className="users-tbl">
             <thead>
               <tr>
                 <th>Foydalanuvchi</th>
@@ -201,7 +208,7 @@ export default function Regulars() {
                     />
                   </td>
                   <td>
-                    <span className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                    <span className="tags" style={{ flexWrap: "nowrap" }}>
                       <Tag kind={r.state}>{r.state}</Tag>
                       {r.bot_blocked && <Tag kind="bad">bloklagan</Tag>}
                     </span>
@@ -216,12 +223,39 @@ export default function Regulars() {
                   <td className="num">{r.d7}/7</td>
                   <td className="num muted">{r.d30}/30</td>
                   <td><Strip values={r.strip} /></td>
-                  <td className="muted" style={{ whiteSpace: "nowrap" }}>{lastSeen(r.last_day)}</td>
+                  <td className="muted nowrap">{lastSeen(r.last_day)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Telefon: jadval o'rniga kartochkalar. */}
+        <ul className="ucards only-narrow">
+          {data.items.length === 0 && <li className="empty-li">Bu segmentda hech kim yo'q.</li>}
+          {data.items.map((r) => (
+            <li key={r.user_id}>
+              <button className="ucard" onClick={() => setOpen(r.user_id)}>
+                <Av name={r.first_name || r.username || "?"} seed={r.user_id} size="md" />
+                <span className="ucard-body">
+                  <span className="ucard-top">
+                    <b>{r.first_name || (r.username ? `@${r.username}` : "Nomsiz")}</b>
+                    <span className="num">seriya {r.streak}{r.streak > 0 && !r.wrote_today ? " ·" : ""}</span>
+                  </span>
+                  <span className="meta">
+                    7 kun: {r.d7}/7 · 30 kun: {r.d30}/30 · {lastSeen(r.last_day)}
+                  </span>
+                  <span className="tags">
+                    <Tag kind={r.state}>{r.state}</Tag>
+                    {r.bot_blocked && <Tag kind="bad">bloklagan</Tag>}
+                    <Strip values={r.strip} />
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
         <Pager
           page={data.page}
           pages={data.pages}

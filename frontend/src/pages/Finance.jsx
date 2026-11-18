@@ -5,8 +5,8 @@ import { setFinanceDays } from "../store/uiSlice";
 import AiCost from "../components/AiCost";
 import Cashflow from "../components/Cashflow";
 import Fresh from "../components/Fresh";
-import { Card, Empty, ErrorBox, Kpi, Loading, Seg, Tag } from "../components/common";
-import { amalNomi, dt, som, usd, usulNomi } from "../lib/format";
+import { Card, Empty, ErrorBox, Kpi, Loading, Seg } from "../components/common";
+import { amalNomi, som, usd } from "../lib/format";
 
 const RANGES = [
   [7, "7 kun"],
@@ -15,6 +15,13 @@ const RANGES = [
   [365, "1 yil"],
 ];
 
+/**
+ * Moliya: avval oy natijasi (daromad, AI sarfi, sof foyda), keyin kunlik pul
+ * oqimi, keyin AI xarajati va uning tafsiloti. Har tanlagich o'zi boshqaradigan
+ * bo'lim ichida turadi — ilgari sahifa tepasida uchta tanlagich bor edi va
+ * qaysi biri nimaga ta'sir qilishi tushunarsiz edi. Tushgan to'lovlar ro'yxati
+ * «To'lovlar» sahifasida.
+ */
 export default function Finance() {
   const dispatch = useDispatch();
   const days = useSelector((s) => s.ui.financeDays);
@@ -32,37 +39,17 @@ export default function Finance() {
 
   return (
     <>
-      <div className="row">
-        {/* Nomlangan: pastda kunlik pul oqimining ham o'z oynasi bor —
-            ikkita bir xil ko'rinishdagi tanlagich chalg'itmasin. */}
-        <span className="lbl">AI sarfi tahlili:</span>
-        <Seg
-          options={RANGES}
-          value={days}
-          onChange={(d) => dispatch(setFinanceDays(d))}
-        />
-        <span className="spacer" />
-        <span className="muted" style={{ fontSize: 13 }}>
+      <div className="sec-head">
+        <h2>Shu oy</h2>
+        <span className="muted">
           Kurs: 1 $ = <span className="mono">{som(data.usd_rate)}</span> so'm
         </span>
+        <span className="spacer" />
         <Fresh at={fulfilledTimeStamp} busy={isFetching} />
-        <a className="btn" href="/api/export/payments.csv">
-          To'lovlar CSV
-        </a>
       </div>
-
-      {/* Kunlik va haftalik kesim — oylik ko'rsatkichlardan oldin: savol
-          odatda «bugun nima bo'ldi» dan boshlanadi. */}
-      <Cashflow full />
-
-      <h2 className="sec">Oylik ko'rsatkichlar</h2>
-      <div className="kpis three">
-        <Kpi label="Shu oy daromad" value={som(ov.revenue_month)} sub="so'm" tone="brass" />
-        <Kpi
-          label="Shu oy AI sarfi"
-          value={som(data.cost_month_som)}
-          sub={usd(ov.cost_month)}
-        />
+      <div className="kpis three" style={{ marginTop: -12 }}>
+        <Kpi label="Daromad" value={som(ov.revenue_month)} sub="so'm" tone="brass" />
+        <Kpi label="AI sarfi" value={som(data.cost_month_som)} sub={`so'm · ${usd(ov.cost_month)}`} />
         <Kpi
           label="Sof foyda"
           value={som(ov.profit_month)}
@@ -74,7 +61,7 @@ export default function Finance() {
           value={som(data.per_user_som)}
           sub={`oyiga, ${usd(data.per_user_usd, 4)}`}
         />
-        <Kpi label="Jami daromad" value={som(ov.revenue_all)} sub="boshidan beri" />
+        <Kpi label="Jami daromad" value={som(ov.revenue_all)} sub="boshidan beri, so'm" />
         <Kpi
           label="Jami AI sarfi"
           value={usd(ov.cost_all)}
@@ -82,11 +69,17 @@ export default function Finance() {
         />
       </div>
 
-      {/* AI xarajati — kun · hafta · oy · yil kesimida, grafik + aniq
-          qiymatlar jadvali (o'z tanlagichi bor, yuqoridagi oynaga bog'liq emas). */}
+      <h2 className="sec-title">Kunlik pul oqimi</h2>
+      <Cashflow full />
+
       <AiCost />
 
-      <div className="grid2">
+      <div className="sec-head">
+        <h2 className="sec-title" style={{ margin: 0 }}>AI sarfi tafsiloti</h2>
+        <span className="spacer" />
+        <Seg options={RANGES} value={days} onChange={(d) => dispatch(setFinanceDays(d))} />
+      </div>
+      <div className="grid2" style={{ marginTop: -12 }}>
         <Card title="Amal turlari bo'yicha">
           <div className="tbl-wrap">
             <table>
@@ -105,9 +98,7 @@ export default function Finance() {
                 )}
                 {data.breakdown.by_operation.map((r) => (
                   <tr key={r.operation}>
-                    <td>
-                      <b>{amalNomi(r.operation)}</b>
-                    </td>
+                    <td><b>{amalNomi(r.operation)}</b></td>
                     <td className="num">{r.calls}</td>
                     <td className="num">{usd(r.cost)}</td>
                     <td className="num">{usd((r.cost || 0) / (r.calls || 1), 4)}</td>
@@ -144,9 +135,7 @@ export default function Finance() {
             </table>
           </div>
         </Card>
-      </div>
 
-      <div className="grid2">
         <Card title="Eng ko'p sarflaganlar">
           <div className="tbl-wrap">
             <table>
@@ -175,7 +164,10 @@ export default function Finance() {
           </div>
         </Card>
 
-        <Card title="Tariflar">
+        <Card
+          title="Tariflar"
+          action={<Link className="more" to="/sozlamalar">Narxlarni o'zgartirish →</Link>}
+        >
           <div className="tbl-wrap">
             <table>
               <thead>
@@ -189,9 +181,7 @@ export default function Finance() {
               <tbody>
                 {data.plans.map((p) => (
                   <tr key={p.code}>
-                    <td>
-                      <b>{p.label}</b>
-                    </td>
+                    <td><b>{p.label}</b></td>
                     <td className="num">{som(p.price)}</td>
                     <td className="num">{som(p.monthly)}</td>
                     <td className="num">{p.days}</td>
@@ -203,75 +193,12 @@ export default function Finance() {
         </Card>
       </div>
 
-      <Card title="Daromad to'lov usuli bo'yicha">
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Usul</th>
-                <th className="num">Shu oy</th>
-                <th className="num">Soni (oy)</th>
-                <th className="num">Jami</th>
-                <th className="num">Soni (jami)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data.by_method || []).length === 0 && <Empty colSpan={5}>Daromad yo'q.</Empty>}
-              {(data.by_method || []).map((m) => (
-                <tr key={m.method}>
-                  <td><b>{usulNomi(m.method)}</b></td>
-                  <td className="num">{som(m.month)}</td>
-                  <td className="num">{m.month_n}</td>
-                  <td className="num">{som(m.total)}</td>
-                  <td className="num">{m.n}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="hint pad" style={{ margin: 0 }}>
-          Bekor qilingan («xato yozuv») va Payme test (sandbox) to'lovlari daromadga kirmaydi.
-        </p>
-      </Card>
-
-      <Card title="To'lovlar tarixi">
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Sana</th>
-                <th>Foydalanuvchi</th>
-                <th>Tarif</th>
-                <th className="num">Summa</th>
-                <th className="num">Kun</th>
-                <th>Usul</th>
-                <th>Kim qo'shdi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.payments.length === 0 && <Empty colSpan={7}>To'lov yo'q.</Empty>}
-              {data.payments.map((p) => (
-                <tr key={p.id}>
-                  <td className="mono nowrap">{dt(p.created_at)}</td>
-                  <td>
-                    <Link to={`/foydalanuvchilar/${p.user_id}`}>
-                      {p.first_name || p.user_id}
-                    </Link>
-                  </td>
-                  <td>{p.plan_code}</td>
-                  <td className="num">
-                    {p.voided_at ? <span className="muted" title="Daromaddan chiqarilgan"><s>{som(p.amount)}</s></span> : som(p.amount)}
-                  </td>
-                  <td className="num">{p.days}</td>
-                  <td><Tag kind={p.method === "payme" ? "ok" : ""}>{usulNomi(p.method)}</Tag></td>
-                  <td className="muted">{p.created_by}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
+      <div className="note">
+        <span className="grow">
+          Tushgan to'lovlar ro'yxati, to'lov usullari va CSV — «To'lovlar» sahifasida.
+        </span>
+        <Link className="btn sm" to="/tolovlar">To'lovlar →</Link>
+      </div>
     </>
   );
 }

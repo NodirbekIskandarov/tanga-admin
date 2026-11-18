@@ -5,12 +5,19 @@ import { useStatsQuery } from "../store/api";
 import { setStatsRange } from "../store/uiSlice";
 import Fresh from "../components/Fresh";
 import { Card, ErrorBox, Kpi, Loading, Seg } from "../components/common";
-import { som, usd } from "../lib/format";
+import { manbaNomi, som, usd } from "../lib/format";
 
 const RANGES = [
   ["kunlik", "Kunlik"],
   ["oylik", "Oylik"],
   ["yillik", "Yillik"],
+];
+
+const PERIODS = [
+  ["bugun", "Bugun"],
+  ["7", "7 kun"],
+  ["30", "30 kun"],
+  ["all", "Hammasi"],
 ];
 
 /**
@@ -42,54 +49,83 @@ function RevenueBars({ items }) {
   );
 }
 
-/**
- * Faollashtirish voronkasi: har bosqich /start bosganlarga nisbatan foizda.
- * Ikki ko'rsatkich: hammasi va oxirgi 30 kunda boshlaganlar — o'zgarish
- * yoki reklamadan keyingi guruh eski foydalanuvchilar bilan aralashmasin.
- */
-function Funnel({ all, d30 }) {
-  return (
-    <>
-      <div className="bars">
-        {all.map((step, i) => (
-          <div className="bar-row" key={step.key}>
-            <span>{step.label}</span>
-            <span className="bar-track">
-              <span className="bar-fill" style={{ width: `${step.percent}%` }} />
-            </span>
-            <span className="bar-val">
-              {step.count} · {step.percent}%
-              <span className="muted"> · 30 kun: {d30[i].count} · {d30[i].percent}%</span>
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="hint">
-        Foiz — /start bosganlarga nisbatan. «7-kundan keyin ham yozgan» —
-        ro'yxatdan o'tganidan kamida bir hafta keyin yozuv kiritganlar.
-        Faqat sonlar: yozuvlarning mazmuni panelda yo'q.
-      </p>
-    </>
-  );
-}
-
-/** Foiz — shu manbadan /start bosganlarga nisbatan. */
+/** Foiz — `of` ga nisbatan. */
 function pct(n, of) {
   return of ? `${Math.round((100 * n) / of)}%` : "—";
 }
 
-const PERIODS = [
-  ["bugun", "Bugun"],
-  ["7", "7 kun"],
-  ["30", "30 kun"],
-  ["all", "Hammasi"],
-];
+/**
+ * Faollashtirish voronkasi — jadval ko'rinishida: har bosqich /start
+ * bosganlarga nisbatan va oldingi bosqichga nisbatan (qayerda ko'p odam
+ * tushib qolayotgani shu ustunda ko'rinadi). Ikki guruh: hammasi va oxirgi
+ * 30 kunda boshlaganlar — reklamadan keyingi guruh eskilar bilan aralashmasin.
+ */
+function Funnel({ all, d30 }) {
+  return (
+    <>
+      <div className="tbl-wrap">
+        <table className="funnel">
+          <thead>
+            <tr>
+              <th>Bosqich</th>
+              <th className="bar-col">Hammasi</th>
+              <th className="num">Soni</th>
+              <th className="num">Oldingidan</th>
+              <th className="num">Oxirgi 30 kun</th>
+            </tr>
+          </thead>
+          <tbody>
+            {all.map((step, i) => {
+              const prev = i > 0 ? all[i - 1].count : null;
+              const prev30 = i > 0 ? d30[i - 1].count : null;
+              return (
+                <tr key={step.key}>
+                  <td>{step.label}</td>
+                  <td className="bar-col">
+                    <span className="bar-track"><span className="bar-fill" style={{ width: `${step.percent}%` }} /></span>
+                  </td>
+                  <td className="num nowrap">{step.count} <span className="muted">· {step.percent}%</span></td>
+                  <td className="num nowrap">{prev == null ? "—" : pct(step.count, prev)}</td>
+                  <td className="num nowrap">
+                    {d30[i].count} <span className="muted">· {d30[i].percent}%</span>
+                    {prev30 != null && <span className="muted"> ({pct(d30[i].count, prev30)})</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint pad" style={{ margin: 0 }}>
+        Foiz — /start bosganlarga nisbatan; «Oldingidan» — oldingi bosqichga o'tganlarning
+        qanchasi keyingisiga o'tgani. «7-kundan keyin ham yozgan» — ro'yxatdan o'tganidan
+        kamida bir hafta keyin yozuv kiritganlar. Faqat sonlar: yozuvlarning mazmuni panelda yo'q.
+      </p>
+    </>
+  );
+}
 
 /** «2026-10-27» dan boshlab i-kun: «27.10». */
 function dayLabel(from, i) {
   const d = new Date(`${from}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + i);
   return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Qatorni ochganda: oxirgi 14 kun, kuniga nechta start — kichik ustunlar. */
+function DailyStarts({ from, values }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div className="mini-bars" aria-label="Oxirgi 14 kun, kuniga start">
+      {values.map((n, i) => (
+        <div key={i} className="mini-bar" title={`${dayLabel(from, i)}: ${n}`}>
+          <span className="n">{n || ""}</span>
+          <span className="b" style={{ height: `${(100 * n) / max}%` }} />
+          <span className="d">{dayLabel(from, i)}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -106,7 +142,7 @@ function Sources({ data, period }) {
   return (
     <>
       <div className="tbl-wrap">
-        <table>
+        <table className="sources-tbl">
           <thead>
             <tr>
               <th>Manba</th>
@@ -125,29 +161,25 @@ function Sources({ data, period }) {
             {rep.rows.map((r) => (
               <Fragment key={r.source}>
                 <tr
-                  className="click"
+                  className={`click ${open === r.source ? "open" : ""}`}
                   onClick={() => setOpen(open === r.source ? null : r.source)}
                   aria-expanded={open === r.source}
                 >
-                  <td className="mono">{r.source}</td>
-                  <td className="num">{r.start}</td>
-                  <td className="num">{r.faol} · {pct(r.faol, r.start)}</td>
-                  <td className="num">{r.d3 ?? 0} · {pct(r.d3 ?? 0, r.start)}</td>
-                  <td className="num">{r.d7} · {pct(r.d7, r.start)}</td>
-                  <td className="num">{r.pro} · {pct(r.pro, r.start)}</td>
+                  <td>
+                    <span className="src-name">{manbaNomi(r.source)}</span>
+                    <span className="src-raw mono">{r.source}</span>
+                  </td>
+                  <td className="num"><b>{r.start}</b></td>
+                  <td className="num">{r.faol} <span className="muted">· {pct(r.faol, r.start)}</span></td>
+                  <td className="num">{r.d3 ?? 0} <span className="muted">· {pct(r.d3 ?? 0, r.start)}</span></td>
+                  <td className="num">{r.d7} <span className="muted">· {pct(r.d7, r.start)}</span></td>
+                  <td className="num">{r.pro} <span className="muted">· {pct(r.pro, r.start)}</span></td>
                   <td className="num">{som(r.revenue)}</td>
                 </tr>
                 {open === r.source && (
-                  <tr>
+                  <tr className="detail">
                     <td colSpan={7}>
-                      <div className="hint" style={{ margin: 0 }}>
-                        Oxirgi 14 kun, kuniga start:{" "}
-                        {daily(r.source).map((n, i) => (
-                          <span key={i} className="mono" style={{ marginRight: 10 }}>
-                            {dayLabel(data.daily_from, i)}: <b>{n}</b>
-                          </span>
-                        ))}
-                      </div>
+                      <DailyStarts from={data.daily_from} values={daily(r.source)} />
                     </td>
                   </tr>
                 )}
@@ -169,18 +201,32 @@ function Sources({ data, period }) {
           )}
         </table>
       </div>
-      <p className="hint pad" style={{ marginTop: 0 }}>
-        Reklama havolasi — botda <span className="mono">/havola nom</span>:{" "}
-        <span className="mono">t.me/hisobchi_tanga_bot?start=ad_nom</span>. Boshqa
-        formatlar: <span className="mono">ig_nom</span>, <span className="mono">tg_ads1</span> (Telegram Ads),{" "}
-        <span className="mono">site</span>; do'st taklifi — «taklif», parametrsiz —
-        «organik», funksiya qo'shilishidan oldingilar — «eski». Manba faqat botni
-        birinchi ochganda yoziladi. Hisoblangan: {data.computed_at?.slice(0, 16).replace("T", " ")}.
-      </p>
+      <div className="pad" style={{ paddingTop: 8 }}>
+        <p className="hint" style={{ margin: 0 }}>
+          Qatorni bosing — oxirgi 14 kunda kuniga nechta start. «Faol» — kamida bitta yozuv;
+          «3 kun», «7 kun» — shundan keyin ham yozganlar; PRO va daromad — haqiqiy to'lovlar.
+          Hisoblangan: {data.computed_at?.slice(0, 16).replace("T", " ")}.
+        </p>
+        <details className="howto">
+          <summary>Reklama havolasi qanday yasaladi?</summary>
+          <p className="hint">
+            Botda <span className="mono">/havola nom</span> —{" "}
+            <span className="mono">t.me/hisobchi_tanga_bot?start=ad_nom</span>. Boshqa
+            formatlar: <span className="mono">ig_nom</span> (Instagram),{" "}
+            <span className="mono">tg_ads1</span> (Telegram Ads), <span className="mono">site</span>;
+            do'st taklifi — «taklif», parametrsiz — «organik», funksiya qo'shilishidan
+            oldingilar — «eski». Manba faqat botni birinchi ochganda yoziladi.
+          </p>
+        </details>
+      </div>
     </>
   );
 }
 
+/**
+ * Statistika: avval manbalar (qayerdan kelyapti va qolyaptimi), keyin
+ * voronka (qaysi bosqichda tushib qolishyapti), keyin pul.
+ */
 export default function Stats() {
   const dispatch = useDispatch();
   const range = useSelector((s) => s.ui.statsRange);
@@ -197,17 +243,14 @@ export default function Stats() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="sec-head">
+        <h2>Oxirgi 30 kun</h2>
+        <span className="spacer" />
         <Fresh at={fulfilledTimeStamp} busy={isFetching} />
       </div>
-
-      <div className="kpis">
+      <div className="kpis" style={{ marginTop: -12 }}>
         <Kpi label="Yangi foydalanuvchi" value={s.newUsers30} sub="oxirgi 30 kun" />
-        <Kpi
-          label="Ketganlar"
-          value={s.churned}
-          sub={`churn ${s.churnPercent}%`}
-        />
+        <Kpi label="Ketganlar" value={s.churned} sub={`churn ${s.churnPercent}%`} />
         <Kpi
           label="Sinovdan to'lovga"
           value={`${s.conversion}%`}
@@ -217,39 +260,31 @@ export default function Stats() {
         <Kpi label="O'rtacha chek" value={som(s.avgCheck)} sub="so'm" tone="brass" />
       </div>
 
-      {data.funnel && (
-        <Card title="Faollashtirish voronkasi">
-          <div className="pad">
-            <Funnel all={data.funnel.all} d30={data.funnel.d30} />
-          </div>
-        </Card>
-      )}
-
-      {data.sources?.periods && (
+      {data.sources?.periods ? (
         <Card
           title="Manbalar"
-          action={
-            <>
-              <span className="spacer" />
-              <Seg options={PERIODS} value={sourcePeriod} onChange={setSourcePeriod} />
-            </>
-          }
+          action={<Seg options={PERIODS} value={sourcePeriod} onChange={setSourcePeriod} />}
         >
           <Sources data={data.sources} period={sourcePeriod} />
+        </Card>
+      ) : (
+        <div className="note">
+          <span className="grow">
+            Manbalar jadvali hali hisoblanmagan — bot uni har 10 daqiqada yangilaydi.
+          </span>
+        </div>
+      )}
+
+      {data.funnel && (
+        <Card title="Faollashtirish voronkasi">
+          <Funnel all={data.funnel.all} d30={data.funnel.d30} />
         </Card>
       )}
 
       <Card
         title="Daromad"
         action={
-          <>
-            <span className="spacer" />
-            <Seg
-              options={RANGES}
-              value={range}
-              onChange={(v) => dispatch(setStatsRange(v))}
-            />
-          </>
+          <Seg options={RANGES} value={range} onChange={(v) => dispatch(setStatsRange(v))} />
         }
       >
         <div className="pad">
@@ -282,7 +317,7 @@ export default function Stats() {
           </div>
         </Card>
 
-        <Card title="AI sarfi">
+        <Card title="AI sarfi" action={<Link className="more" to="/moliya">Moliya →</Link>}>
           <div className="pad stack-sm">
             <div className="inline">
               <span className={`big ${aiTone}`}>{ai.percent}%</span>
@@ -309,9 +344,6 @@ export default function Stats() {
                 Oy oxirigacha {ai.daysLeft} kun.
               </p>
             )}
-            <Link className="more" to="/moliya">
-              Batafsil: amal va model bo'yicha sarf →
-            </Link>
           </div>
         </Card>
       </div>
